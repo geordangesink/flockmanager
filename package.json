@@ -1,0 +1,40 @@
+{
+  "name": "flockmanager",
+  "version": "1.0.0",
+  "description": "create and manage flocks which hold data and connections to peers connected on a shared hyperswarm topic using invite keys",
+  "main": "index.js",
+  "scripts": {
+    "test": "standard && brittle test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/geordangesink/flockmanager.git"
+  },
+  "keywords": [
+    "peer-to-peer",
+    "management"
+  ],
+  "author": "Geordan Gesink",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/geordangesink/flockmanager/issues"
+  },
+  "homepage": "https://github.com/geordangesink/flockmanager#readme",
+  "dependencies": {
+    "autobase": "^7.1.1",
+    "b4a": "^1.6.7",
+    "blind-pairing": "^2.3.1",
+    "compact-encoding": "^2.16.0",
+    "corestore": "^7.0.23",
+    "hyperbee": "^2.23.0",
+    "hyperswarm": "^4.11.0",
+    "random-access-memory": "^6.2.1",
+    "ready-resource": "^1.1.2",
+    "z32": "^1.1.0"
+  },
+  "devDependencies": {
+    "brittle": "^3.13.1",
+    "hyperdht": "^6.20.1",
+    "test-tmp": "^1.4.0"
+  }
+}
