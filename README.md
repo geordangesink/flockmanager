@@ -93,7 +93,7 @@ Pear.teardown(async () => {
 ### `const flock = await flockManager.initFlock(invite, options, isNew)`
 - `invite` (string) - Optional invite key to join an existing flock.
 - `options` (object) - Configuration options for the flock.
-- `isNew` (boolean) - If true, creates a new flock; otherwise, joins an existing one.
+- `isNew` (boolean) - true by defalut -> anounces user to flock and saves flockId in local db
 
 ### `cosnt invite = flock.invite`
 - permanent hex invite key for the flock
