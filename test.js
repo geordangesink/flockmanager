@@ -49,7 +49,7 @@ test('invites', async function (t) {
       console.log('workaround for now to avoid session closed hypercore error')
       a.cleanup()
       b.cleanup()
-    }, 4000)
+    }, 8000)
   })
 })
 
@@ -79,11 +79,10 @@ test('userData updates', async function (t) {
       console.log('workaround for now to avoid session closed hypercore error')
       a.cleanup()
       b.cleanup()
-    }, 4000)
+    }, 8000)
   })
 })
 
-// TODO: encryption test
 test('userData encryption', async function (t) {
   t.plan(2)
   const tn = await testnet(12, t)
@@ -119,7 +118,7 @@ test('userData encryption', async function (t) {
       console.log('workaround for now to avoid session closed hypercore error')
       a.cleanup()
       b.cleanup()
-    }, 4000)
+    }, 8000)
   })
 })
 
