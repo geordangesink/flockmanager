@@ -14,7 +14,7 @@ const c = require('compact-encoding')
  * @typedef {class} [FlockManager] - Creates, saves and manages all flocks
  * @param {string} [storageDir] - difine a storage path (defaults to ./storage)
  * @property {Corestore} [corestore] - Corestore instance
- * @property {Hyperbee} [localBee] - local hyperbee for personal storage (for now)
+ * @property {Hyperbee} [flocksBee] - local hyperbee for personal storage (for now)
  * @property {Hyperswarm} [swarm] - Hyperswarm instance
  * @property {BlindPairing} [pairing] - BlindPairing instance
  * @property {Object} [flocks] - flockId key and flock instance value
@@ -25,18 +25,31 @@ class FlockManager extends ReadyResource {
     super()
     this.storageDir = storageDir || './storage'
     this.corestore = new Corestore(this.storageDir)
+    this.flocksBee = null
     this.localBee = null
     this.bootstrap = opts.bootstrap || null
     this.swarm = new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
     this.flocks = {}
-    this.userData = {}
+    this._userData = {}
     this.discoveryKeys = new Set()
     this.ready().catch(noop)
   }
 
+  get userData () {
+    return this._userData
+  }
+
   async _open () {
     await this.corestore.ready()
+    this.flocksBee = new Hyperbee(
+      this.corestore.namespace('localData').get({ name: 'flocksBee' }),
+      {
+        keyEncoding: 'utf-8',
+        valueEncoding: c.any
+      }
+    )
+    await this.flocksBee.ready()
     this.localBee = new Hyperbee(
       this.corestore.namespace('localData').get({ name: 'localBee' }),
       {
@@ -45,37 +58,82 @@ class FlockManager extends ReadyResource {
       }
     )
     await this.localBee.ready()
-    const flocksInfo = await this.localBee.get('flocksInfo')
+
+    const flocksInfo = await this.flocksBee.get('flocksInfo')
     const userDataDb = await this.localBee.get('userData')
+
     if (flocksInfo && flocksInfo.value) {
       const flocksInfoMap = jsonToMap(flocksInfo.value.toString())
-      const userData = userDataDb && userDataDb.value
-      this.userData = userData
+      const userData = (userDataDb && userDataDb.value) || {}
+      this._userData = userData
       for (const [flockId, infoMap] of flocksInfoMap) {
         const info = infoMap.get('info')
         await this.initFlock(undefined, { info, flockId, userData }, false)
       }
     } else {
-      await this.localBee.put('flocksInfo', mapToJson(new Map()))
+      await this.flocksBee.put('flocksInfo', mapToJson(new Map()))
     }
   }
 
   /**
-   * pass an object with props to update userData
-   * @param {object} userData - update userData
+   * set userData across all flocks
+   * @param {Object} userData
    */
   async setUserData (userData) {
-    this.userData = userData
-    const userDataDb = await this.localBee.get('userData')
-    if (userDataDb && userDataDb.value) {
-      const oldUserData = userDataDb.value
-      const newUserData = { ...oldUserData, ...userData }
-      await this.localBee.put('userData', newUserData)
+    try {
+      if (typeof userData !== 'object') throw new Error('userData must be typeof Object', TypeError)
+      await this.localBee.put('userData', userData)
+      for await (const flock of Object.values(this.flocks)) {
+        flock._setUserData(userData)
+      }
+    } catch (err) {
+      console.error('error in updating userData:', err)
     }
   }
 
   /**
-   * Gets configuration options for a new flock
+   * save local data
+   * @param {string}
+   * @param {*}
+   */
+  async set (string, data) {
+    if (string === 'userData') return this.setUserData(data)
+    try {
+      let newData = data
+      // TODO: check if map can be handled without parsing
+      if (newData instanceof Map) newData = mapToJson(data)
+      await this.localBee.put(string, newData)
+    } catch (err) {
+      console.error('error in updating local storage:', err)
+    }
+  }
+
+  /**
+   * get local data
+   * @param {string}
+   * @returns {Promise}
+   */
+  async get (string) {
+    try {
+      const rawData = await this.localBee.get(string)
+      const data = rawData.value
+      // TODO: check if map can be handled without parsing
+      if (typeof data === 'string') {
+        try {
+          const parsed = jsonToMap(data)
+          return parsed
+        } catch {
+          noop()
+        }
+      }
+      return data
+    } catch (err) {
+      console.error(`error in getting "${string}":`, err)
+    }
+  }
+
+  /**
+   * gets configuration options for a flock
    * @param {string} flockId - Unique flock identifier
    * @returns {Object} flock configuration options
    */
@@ -85,32 +143,40 @@ class FlockManager extends ReadyResource {
   }
 
   /**
-   * initializes a flock (bypasses joinability check)
-   * (or creates if no flockId provided)
+   * return an alias stream of flock's corestore namespace
+   * @param {Flock} flock - flock instance
+   * @returns {stream} - stream of hypercores within the flocks namespace
+   */
+  getFlockCoresStream (flock) {
+    const namespace = flock.corestore.ns
+    const stream = flock.corestore.storage.createAliasStream(namespace)
+    return stream
+  }
+
+  /**
+   * create or join a new flock and add to db
    * @param {string} [invite] - Optional input invite
    * @param {Object} [opts={}] - flock configuration options
-   * @param {boolean} [isNew] - defaults to true
-   * @returns {flock} New flock instance
+   * @param {boolean} [isNew] - tries to open existing flock if false
+   * @returns {Flock || false} New flock instance or false on invalid invite
    */
   async initFlock (invite = '', opts = {}, isNew = true) {
     let flock
     const flockId = opts.flockId || generateFlockId()
-    const baseOpts = { ...opts, flockId, ...this.getFlockOptions(flockId), userData: this.userData, isNew }
+    const baseOpts = { ...opts, flockId, ...this.getFlockOptions(flockId), userData: this._userData, isNew }
     if (invite) {
       // check for invalid invite or already joined
       const discoveryKey = await this.getDiscoveryKey(invite)
       if (discoveryKey === 'invalid') return false
-      else if (discoveryKey) return this._findFlock(discoveryKey)
+      else if (discoveryKey) return this.findFlock(discoveryKey)
 
       const pair = FlockManager.pair(invite, baseOpts)
       flock = await pair.finished()
-      flock.on('leaveflock', () => this.deleteFlock(flock))
-      // save flock if its new
+      flock.on('leaveflock', () => this._deleteFlock(flock))
       if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
     } else {
-      // save flock if its new
       flock = new Flock(baseOpts)
-      flock.on('leaveflock', () => this.deleteFlock(flock))
+      flock.on('leaveflock', () => this._deleteFlock(flock))
       if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
       await flock.ready()
     }
@@ -130,25 +196,36 @@ class FlockManager extends ReadyResource {
   }
 
   /**
-   * when joining an existing flock
+   * to join an existing flock
    * @param {Object} opts
+   * @returns {FlockPairer} - pairs flocks. await flockPairer.finished() to return joined flock
    */
   static pair (invite, opts = {}) {
     const store = opts.corestore
     return new FlockPairer(store, invite, opts)
   }
 
-  async updateFlockInfo (flock) {
-    try {
-      const flocksInfoDb = await this.localBee.get('flocksInfo')
-      const flocksInfoMap = jsonToMap(flocksInfoDb.value.toString())
-      flocksInfoMap.get(flock.flockId).set('info', flock.info)
-      await this.localBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
-    } catch (err) {
-      console.error('error updating flock. does the flock exist?', err)
-    }
-  }
+  // /**
+  //  *
+  //  * @param {Flock} flock - flock instance
+  //  * @param {Object} info - updated flock info
+  //  */
+  // static async updateFlockInfo (flock, info) {
+  //   try {
+  //     const flocksInfoDb = await this.flocksBee.get('flocksInfo')
+  //     const flocksInfoMap = jsonToMap(flocksInfoDb.value.toString())
+  //     flocksInfoMap.get(flock.flockId).set('info', flock.info)
+  //     await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+  //   } catch (err) {
+  //     console.error('error updating flock. does the flock exist?', err)
+  //   }
+  // }
 
+  /**
+   * get the discovery key of an existing flock by its invite key
+   * @param {string} invite
+   * @returns {string} - discoveryKey or "invalid"
+   */
   async getDiscoveryKey (invite) {
     try {
       const discoveryKey = await BlindPairing.decodeInvite(z32.decode(invite))
@@ -163,36 +240,56 @@ class FlockManager extends ReadyResource {
     }
   }
 
-  async deleteFlock (flock) {
-    // TODO: purge storage of corestore namespace
+  async _deleteFlock (flock) {
+    const stream = this.getFlockCoresStream(flock)
 
-    const flocksInfoDb = await this.localBee.get('flocksInfo')
+    stream.on('data', async (data) => {
+      try {
+        const core = this.corestore.get(data.discoveryKey)
+        await core.ready()
+        await core.purge()
+      } catch (err) {
+        console.error('Error in purging hypercore:', err)
+      }
+    })
+
+    stream.on('end', () => {
+      console.log('flock purge stream ended.')
+    })
+
+    const flocksInfoDb = await this.flocksBee.get('flocksInfo')
     const flocksInfoMap = flocksInfoDb
       ? jsonToMap(flocksInfoDb.value.toString())
       : new Map()
 
     if (flocksInfoMap.has(flock.flockId)) {
       flocksInfoMap.delete(flock.flockId)
-      await this.localBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
     }
   }
 
   /**
    *  store folder key and flock id in personal db
+   * @param {Flock}
    */
   async saveFlock (flock) {
-    const flocksInfoDb = await this.localBee.get('flocksInfo')
+    const flocksInfoDb = await this.flocksBee.get('flocksInfo')
     const flocksInfoMap = flocksInfoDb
       ? jsonToMap(flocksInfoDb.value.toString())
       : new Map()
     if (!flocksInfoMap.has(flock.flockId)) {
       const detailsMap = new Map([['info', flock.info]])
       flocksInfoMap.set(flock.flockId, detailsMap)
-      await this.localBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
     }
   }
 
-  async _findFlock (discoveryKey) {
+  /**
+   * Find a flock with its descoveryKey
+   * @param {string}
+   * @returns {Flock}
+   */
+  async findFlock (discoveryKey) {
     for (const flockId in this.flocks) {
       if (
         z32.encode(this.flocks[flockId].metadata.discoveryKey) === discoveryKey
@@ -203,7 +300,7 @@ class FlockManager extends ReadyResource {
   }
 
   async cleanup () {
-    const exitPromises = Object.values(this.flocks).map((flock) => flock.exit())
+    const exitPromises = Object.values(this.flocks).map((flock) => flock._exit())
     await Promise.all(exitPromises)
     this.flocks = {}
 
@@ -336,10 +433,10 @@ class FlockPairer extends ReadyResource {
 class Flock extends ReadyResource {
   constructor (opts = {}) {
     super()
-    this.info = opts.info || {}
-    this.userData = opts.userData || {}
-    this.flockId = opts.flockId || generateFlockId()
-    this.key = opts.key
+    this._info = opts.info || {}
+    this._userData = opts.userData || {}
+    this._flockId = opts.flockId || generateFlockId()
+    // this._key = opts.key
     this.isNew = opts.isNew
 
     this.corestore =
@@ -359,6 +456,22 @@ class Flock extends ReadyResource {
     this._boot(opts)
     this.ready()
   }
+
+  get info () {
+    return this._info
+  }
+
+  get userData () {
+    return this._userData
+  }
+
+  get flockId () {
+    return this._flockId
+  }
+
+  // get key () {
+  //   return this._key
+  // }
 
   _boot (opts = {}) {
     const { encryptionKey, key } = opts
@@ -398,29 +511,15 @@ class Flock extends ReadyResource {
     })
     await this.member.flushed()
     this.opened = true
-    this.invite = await this.createInvite()
+    this.invite = await this._createInvite()
     if (this.isNew) {
-      const flockInfo = await this.autobee.get('flockInfo')
-
-      if (flockInfo) {
-        flockInfo.members = {
-          ...flockInfo.members,
-          [this.myId]: this.userData
-        }
-        this.info = flockInfo
-      } else {
-        this.info.members = {
-          [this.myId]: this.userData
-        }
-      }
-
-      await this.autobee.put('flockInfo', this.info)
+      this._setUserData()
     }
     this.emit('allDataThere')
     this._joinTopic()
   }
 
-  async createInvite () {
+  async _createInvite () {
     if (this.opened === false) await this.ready()
     const existing = await this.autobee.get('inviteInfo')
     if (existing) return existing.invite
@@ -465,8 +564,71 @@ class Flock extends ReadyResource {
     }
   }
 
+  /**
+   * set flock data
+   * @param {string}
+   * @param {*}
+   */
+  async set (string, data) {
+    if (string === 'userData') return this._setUserData(data)
+    try {
+      let newData = data
+      // TODO: check if map can be handled without parsing
+      if (newData instanceof Map) newData = mapToJson(newData)
+      await this.autobee.put(string, newData)
+    } catch (err) {
+      console.error('error in updating local storage:', err)
+    }
+  }
+
+  /**
+   * get flock data
+   * @param {string}
+   * @returns {Promise}
+   */
+  async get (string) {
+    try {
+      const data = await this.autobee.get(string)
+      // TODO: check if map can be handled without parsing
+      if (typeof data === 'string') {
+        try {
+          const parsed = jsonToMap(data)
+          return parsed
+        } catch {
+          noop()
+        }
+      }
+      return data
+    } catch (err) {
+      console.error(`error in getting "${string}":`, err)
+    }
+  }
+
+  async _setUserData (userData) {
+    try {
+      if (userData && typeof userData !== 'object') throw new Error('userData must be typeof Object', TypeError)
+      if (userData) this._userData = userData
+      const flockInfo = await this.autobee.get('flockInfo')
+
+      if (flockInfo) {
+        flockInfo.members = {
+          ...flockInfo.members,
+          [this.myId]: this._userData
+        }
+        this._info = flockInfo
+      } else {
+        this._info.members = {
+          [this.myId]: this._userData
+        }
+      }
+
+      await this.autobee.put('flockInfo', this._info)
+    } catch (err) {
+      console.error(`error updating flock ${this.flockId} userData:`, err)
+    }
+  }
+
   async leave () {
-    this.emit('leaveFlock')
     if (this.autobee.writable) {
       if (this.autobee.activeWriters.size > 1) {
         await this.autobee
@@ -474,15 +636,15 @@ class Flock extends ReadyResource {
             type: 'removeWriter',
             key: this.autobee.local.key
           })
-          .catch(this.exit())
-        await this.exit()
+          .catch(this._exit())
+        await this._exit()
       }
     }
+    this.emit('leaveFlock')
   }
 
-  async exit () {
+  async _exit () {
     await this.member.close()
-    await this.autobee.update()
     this.swarm.leave(this.autobee.discoveryKey)
     await this.autobee.close()
     this.emit('flockClosed')
@@ -618,7 +780,6 @@ class Autobee extends Autobase {
   }
 
   async get (key, opts) {
-    // do I have to await??
     const node = await this.view.get(key, opts)
     if (node === null) return null
     return node.value

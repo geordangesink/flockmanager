@@ -36,7 +36,7 @@ await manager.ready();
 ### Retriving Flocks
 
 ```javascript
-const flocks = manager.flocks // object of flock instances
+const flocks = manager.flocks
 for ( const flockId in flocks ){
     console.log('Flock is stored in corestore namespace:', flockId)
 }
@@ -70,43 +70,67 @@ Pear.teardown(async () => {
 });
 ```
 
-### Managing Flocks
-
-#### Delete a Flock
-```javascript
-await manager.deleteFlock(flock);
-```
-
-#### Cleanup All Resources
-```javascript
-await manager.cleanup();
-```
-
 ## API Reference
 
-### `new FlockManager(storageDir, options)`
+### `const flockManager = new FlockManager(storageDir, options)`
 - `storageDir` (string) - Path for storing data (default: `./storage`).
 - `options` (object) - Additional configuration options.
 
-### `.initFlock(invite, options, isNew)`
+### `await flockManager.cleanup()`
+- cleans up all allocated resources and closes manager.
+
+### `const userData = flockManager.userData`
+
+### `const flocks = flockManager.flocks`
+- `flocks` (object) - all flocks with their flockId as key
+
+### `await flockManager.set(key, value)`
+- set a key value pair to the flockManager localBee
+
+### `const value = await flockManager.get(key)`
+- get a value from the flockManager localBee
+
+### `const flock = await flockManager.initFlock(invite, options, isNew)`
 - `invite` (string) - Optional invite key to join an existing flock.
 - `options` (object) - Configuration options for the flock.
 - `isNew` (boolean) - If true, creates a new flock; otherwise, joins an existing one.
 
-### `.setUserData(userData)`
-- `userData` (object) - Custom user metadata.
+### `cosnt invite = flock.invite`
+- permanent hex invite key for the flock
 
-### `.getFlockOptions(flockId)`
-- `flockId` (string) - Unique local identifier of the flock.
+### `cosnt { members } = flock.info`
+- `members` (object) - Every member of a flock {[z32.encode(flock.autobee.local.key)]: `userData`}.
 
-### `.deleteFlock(flock)`
-- `flock` (object) - The flock instance to delete. !NOT FUNCTIONAL YET
+### `const flockId = flock.flockId`
+- local id hex string with which the namespace is opened
 
-### `.saveFlock(flock)`
-- `flock` (object) - The flock instance to save.
+### `await flock.set(key, value)`
+- set a new key value pair to the autobase that will sync with all flock peers
 
-### `.cleanup()`
-- Cleans up all allocated resources.
+### `const value = await flock.get(key)`
+- get a value from shared database
+
+### `await flock.leave()`
+- leave a flock (NOT FUNCTIONAL UNTIL HYPERCORE "purge" UPDATE)
+
+## Advanced
+
+### `const stream = flockManager.getFlockCoreStream(flock)`
+- an alias stream of all hypercores within the flocks namespace
+- `data` (stream object) - holds alias and discoveryKey of core
+
+### `const flockDiscoveryKey = flockManager.getDiscoveryKey(invite)`
+- gets a discoverykey of a flock using an invite
+- `invite` (string) - invite hex key
+
+### `const pair = FlockManager.pair(invite)`
+- flockManager.initFlock() uses this automatically when passing an invite
+- `invite` (string) - invite hex key
+- `pair` (object) - A FlockPairer instance
+- `pair.finished()` (method) - returns the joined flock
+
+### `await flockManager.saveFlock(flock)`
+- saves the flock namespace to local storage for re-open (automatically handled by .initFlock)
 
 ## License
 
