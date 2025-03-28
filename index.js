@@ -27,6 +27,7 @@ class FlockManager extends ReadyResource {
     this.corestore = new Corestore(this.storageDir)
     this.flocksBee = null
     this.localBee = null
+    this.keyPair = null
     this.bootstrap = opts.bootstrap || null
     this.swarm = new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
@@ -42,6 +43,7 @@ class FlockManager extends ReadyResource {
 
   async _open () {
     await this.corestore.ready()
+    this.keyPair = await this.corestore.createKeyPair('flockManager')
     this.flocksBee = new Hyperbee(
       this.corestore.namespace('localData').get({ name: 'flocksBee' }),
       {
@@ -87,7 +89,7 @@ class FlockManager extends ReadyResource {
         flock._setUserData(userData)
       }
     } catch (err) {
-      console.error('error in updating userData:', err)
+      throw new Error('error in updating userData:', err)
     }
   }
 
@@ -104,7 +106,7 @@ class FlockManager extends ReadyResource {
       if (newData instanceof Map) newData = mapToJson(data)
       await this.localBee.put(string, newData)
     } catch (err) {
-      console.error('error in updating local storage:', err)
+      throw new Error('error in updating local storage:', err)
     }
   }
 
@@ -128,7 +130,7 @@ class FlockManager extends ReadyResource {
       }
       return data
     } catch (err) {
-      console.error(`error in getting "${string}":`, err)
+      throw new Error(`error in getting "${string}":`, err)
     }
   }
 
@@ -217,7 +219,7 @@ class FlockManager extends ReadyResource {
   //     flocksInfoMap.get(flock.flockId).set('info', flock.info)
   //     await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
   //   } catch (err) {
-  //     console.error('error updating flock. does the flock exist?', err)
+  //     throw new Error('error updating flock. does the flock exist?', err)
   //   }
   // }
 
@@ -249,7 +251,7 @@ class FlockManager extends ReadyResource {
         await core.ready()
         await core.purge()
       } catch (err) {
-        console.error('Error in purging hypercore:', err)
+        throw new Error('Error in purging hypercore:', err)
       }
     })
 
@@ -436,7 +438,7 @@ class Flock extends ReadyResource {
     this._info = opts.info || {}
     this._userData = opts.userData || {}
     this._flockId = opts.flockId || generateFlockId()
-    // this._key = opts.key
+    this._keyPair = null
     this.isNew = opts.isNew
 
     this.corestore =
@@ -469,9 +471,9 @@ class Flock extends ReadyResource {
     return this._flockId
   }
 
-  // get key () {
-  //   return this._key
-  // }
+  get keyPair () {
+    return this._keyPair
+  }
 
   _boot (opts = {}) {
     const { encryptionKey, key } = opts
@@ -497,6 +499,7 @@ class Flock extends ReadyResource {
    * @returns {Promise<string|void>} Returns invite code if flock is host
    */
   async _open () {
+    this._keyPair = await this.corestore.createKeyPair('awesome')
     if (!this.replicate) return
     await this.autobee.ready()
     this.myId = z32.encode(this.autobee.local.key)
@@ -521,7 +524,7 @@ class Flock extends ReadyResource {
 
   async _createInvite () {
     if (this.opened === false) await this.ready()
-    const existing = await this.autobee.get('inviteInfo')
+    const existing = await this.get('inviteInfo')
     if (existing) return existing.invite
 
     const { id, invite, publicKey, expires } = BlindPairing.createInvite(
@@ -533,13 +536,13 @@ class Flock extends ReadyResource {
       publicKey: z32.encode(publicKey),
       expires
     }
-    await this.autobee.put('inviteInfo', record)
+    await this.set('inviteInfo', record, { encryptionKey: this.keyPair.secretKey })
     return record.invite
   }
 
   async _onAddMember (candidate) {
     const id = z32.encode(candidate.inviteId)
-    const inviteInfo = await this.autobee.get('inviteInfo')
+    const inviteInfo = await this.get('inviteInfo')
     if (inviteInfo.id !== id) return
 
     candidate.open(z32.decode(inviteInfo.publicKey))
@@ -560,35 +563,36 @@ class Flock extends ReadyResource {
       const discovery = this.swarm.join(this.autobee.discoveryKey)
       await discovery.flushed()
     } catch (err) {
-      console.error('Error joining swarm topic', err)
+      throw new Error('Error joining swarm topic', err)
     }
   }
 
   /**
    * set flock data
-   * @param {string}
-   * @param {*}
+   * @param {string} [key]
+   * @param {*} [data]
+   * @param {Buffer} [encryptionKey] - encryption key (eg. this.keyPair.secretKey)
    */
-  async set (string, data) {
-    if (string === 'userData') return this._setUserData(data)
+  async set (key, data, encryptionKey = null) {
+    if (key.startsWith('flockInfo/members/')) return this._setUserData(data)
     try {
       let newData = data
       // TODO: check if map can be handled without parsing
       if (newData instanceof Map) newData = mapToJson(newData)
-      await this.autobee.put(string, newData)
+      await this.autobee.put(key, newData, { encryptionKey })
     } catch (err) {
-      console.error('error in updating local storage:', err)
+      throw new Error('error in updating local storage:', err)
     }
   }
 
   /**
    * get flock data
-   * @param {string}
+   * @param {string} [key]
    * @returns {Promise}
    */
-  async get (string) {
+  async get (key) {
     try {
-      const data = await this.autobee.get(string)
+      const data = await this.autobee.get(key)
       // TODO: check if map can be handled without parsing
       if (typeof data === 'string') {
         try {
@@ -600,15 +604,47 @@ class Flock extends ReadyResource {
       }
       return data
     } catch (err) {
-      console.error(`error in getting "${string}":`, err)
+      throw new Error(`error in getting "${key}":`, err)
     }
+  }
+
+  async getByPrefix (prefix) {
+    const stream = this.autobee.createReadStream({
+      gte: Buffer.from(prefix),
+      lte: Buffer.from(prefix + '\xFF')
+    })
+
+    const result = {} // flockInfo/
+    const nestObject = (obj, path, value) => {
+      const keys = path.split('/')
+      let current = obj
+
+      keys.forEach((key, index) => {
+        if (index !== keys.length - 1) {
+          current[key] = current[key] || {}
+        } else {
+          current[key] = value || current[key] || {}
+        }
+        current = current[key]
+      })
+    }
+    for await (const { key, value } of stream) {
+      const keyParsed = key.toString()
+      const valueParsed = b4a.isBuffer(value) ? value.toString() : value
+      let path = keyParsed.substring(prefix.length)
+      if (path.startsWith('/')) path = path.substring(1)
+
+      nestObject(result, path, valueParsed)
+    }
+
+    return result
   }
 
   async _setUserData (userData) {
     try {
       if (userData && typeof userData !== 'object') throw new Error('userData must be typeof Object', TypeError)
       if (userData) this._userData = userData
-      const flockInfo = await this.autobee.get('flockInfo')
+      const flockInfo = await this.getByPrefix('flockInfo/')
 
       if (flockInfo) {
         flockInfo.members = {
@@ -622,9 +658,9 @@ class Flock extends ReadyResource {
         }
       }
 
-      await this.autobee.put('flockInfo', this._info)
+      await this.autobee.put(`flockInfo/members/${this.myId}`, userData, { encryptionKey: this.keyPair.secretKey })
     } catch (err) {
-      console.error(`error updating flock ${this.flockId} userData:`, err)
+      throw new Error(`error updating flock ${this.flockId} userData:`, err)
     }
   }
 

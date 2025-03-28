@@ -59,7 +59,7 @@ const joinedFlock = await manager.initFlock(invite);
 ### Setting User Data
 
 ```javascript
-await manager.setUserData({ name: 'Alice', role: 'Organizer' });
+await manager.setUserData({ name: 'Alice', age: '32' });
 ```
 
 ### Cleanup
@@ -78,6 +78,10 @@ Pear.teardown(async () => {
 
 ### `await flockManager.cleanup()`
 - cleans up all allocated resources and closes manager.
+
+### `await flockManager.setUserData(data)`
+- sets and updates userdata encrypted across all flocks
+- `data` (object)
 
 ### `const userData = flockManager.userData`
 
@@ -104,8 +108,9 @@ Pear.teardown(async () => {
 ### `const flockId = flock.flockId`
 - local id hex string with which the namespace is opened
 
-### `await flock.set(key, value)`
+### `await flock.set(key, value, encryptionKey)`
 - set a new key value pair to the autobase that will sync with all flock peers
+- `encryptionKey` - pass an encryption Key for restricted data modification (e.g this.keyPair.secretKey)
 
 ### `const value = await flock.get(key)`
 - get a value from shared database
