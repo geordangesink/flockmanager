@@ -186,8 +186,8 @@ class FlockManager extends ReadyResource {
 
     this.flocks[flockId] = flock
     flock.on('flockClosed', () => {
-      delete this.flocks[flockId]
       if (this.closingDown) return
+      delete this.flocks[flockId]
       if (Object.keys(this.flocks).length > 0) return
       queueMicrotask(() => this.emit('lastFlockClosed'))
     })
