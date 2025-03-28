@@ -31,6 +31,7 @@ class FlockManager extends ReadyResource {
     this.bootstrap = opts.bootstrap || null
     this.swarm = new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
+    this.isSaving = false
     this.flocks = {}
     this._userData = {}
     this.discoveryKeys = new Set()
@@ -207,22 +208,6 @@ class FlockManager extends ReadyResource {
     return new FlockPairer(store, invite, opts)
   }
 
-  // /**
-  //  *
-  //  * @param {Flock} flock - flock instance
-  //  * @param {Object} info - updated flock info
-  //  */
-  // static async updateFlockInfo (flock, info) {
-  //   try {
-  //     const flocksInfoDb = await this.flocksBee.get('flocksInfo')
-  //     const flocksInfoMap = jsonToMap(flocksInfoDb.value.toString())
-  //     flocksInfoMap.get(flock.flockId).set('info', flock.info)
-  //     await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
-  //   } catch (err) {
-  //     throw new Error('error updating flock. does the flock exist?', err)
-  //   }
-  // }
-
   /**
    * get the discovery key of an existing flock by its invite key
    * @param {string} invite
@@ -275,14 +260,22 @@ class FlockManager extends ReadyResource {
    * @param {Flock}
    */
   async saveFlock (flock) {
-    const flocksInfoDb = await this.flocksBee.get('flocksInfo')
-    const flocksInfoMap = flocksInfoDb
-      ? jsonToMap(flocksInfoDb.value.toString())
-      : new Map()
-    if (!flocksInfoMap.has(flock.flockId)) {
-      const detailsMap = new Map([['info', flock.info]])
-      flocksInfoMap.set(flock.flockId, detailsMap)
-      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+    if (this.closingDown) return
+    this.isSaving = true
+    try {
+      const flocksInfoDb = await this.flocksBee.get('flocksInfo')
+      const flocksInfoMap = flocksInfoDb
+        ? jsonToMap(flocksInfoDb.value.toString())
+        : new Map()
+      if (!flocksInfoMap.has(flock.flockId)) {
+        const detailsMap = new Map([['info', flock.info]])
+        flocksInfoMap.set(flock.flockId, detailsMap)
+        await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+      }
+    } catch (err) {
+      throw new Error('Error in saving flock info to local db', err)
+    } finally {
+      this.isSaving = false
     }
   }
 
@@ -302,14 +295,29 @@ class FlockManager extends ReadyResource {
   }
 
   async cleanup () {
+    if (this.isSaving) {
+      // Wait for the saving to complete before closing
+      await new Promise(resolve => {
+        const checkSaving = setInterval(() => {
+          if (!this.isSaving) {
+            clearInterval(checkSaving)
+            resolve()
+          }
+        }, 100)
+      })
+    }
+    this.closingDown = true
     const exitPromises = Object.values(this.flocks).map((flock) => flock._exit())
     await Promise.all(exitPromises)
     this.flocks = {}
 
     // Clean up other resources
+    await this.localBee.close()
+    await this.flocksBee.close()
     await this.pairing.close()
     await this.swarm.destroy()
     await this.corestore.close()
+    this.closingDown = false
   }
 
   isClosingDown () {
@@ -514,9 +522,9 @@ class Flock extends ReadyResource {
     })
     await this.member.flushed()
     this.opened = true
-    this.invite = await this._createInvite()
+    this.invite = await this._createInvite().catch(noop)
     if (this.isNew) {
-      this._setUserData()
+      this._setUserData().catch(noop)
     }
     this.emit('allDataThere')
     this._joinTopic()
@@ -681,13 +689,9 @@ class Flock extends ReadyResource {
 
   async _exit () {
     await this.member.close()
-    this.swarm.leave(this.autobee.discoveryKey)
+    await this.swarm.leave(this.autobee.discoveryKey)
     await this.autobee.close()
     this.emit('flockClosed')
-  }
-
-  isClosingDown () {
-    return this.closingDown
   }
 }
 

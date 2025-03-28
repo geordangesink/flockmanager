@@ -5,7 +5,6 @@ const tmp = require('test-tmp')
 
 test('basic', async function (t) {
   const a = await create(t)
-  t.teardown(() => a.cleanup())
 
   a.set('ping', 'pong')
 
@@ -25,10 +24,11 @@ test('invites', async function (t) {
   const a = await create(t, { bootstrap: tn.bootstrap })
   const flockA = await a.initFlock()
 
+  let passedA = false
   flockA.on('update', async function onUpdate () {
     if (flockA.autobee.system.members === 2) {
-      flockA.off('update', onUpdate) // bit hacky because other updates come before
-      t.pass('a has two members')
+      if (!passedA) t.pass('a has two members')
+      passedA = true
     }
   })
 
@@ -37,25 +37,18 @@ test('invites', async function (t) {
   const b = await create(t, { bootstrap: tn.bootstrap })
   const flockB = await b.initFlock(inv)
 
+  let passedB = false
   flockB.on('update', async function onUpdate () {
     if (flockB.autobee.system.members === 2) {
-      flockB.off('update', onUpdate) // bit hacky because other updates come before
-      t.pass('b has two members')
+      if (!passedB) t.pass('b has two members')
+      passedB = true
     }
-  })
-
-  t.teardown(async () => {
-    setTimeout(async () => {
-      console.log('workaround for now to avoid session closed hypercore error')
-      a.cleanup()
-      b.cleanup()
-    }, 8000)
   })
 })
 
 test('userData updates', async function (t) {
   t.plan(1)
-  const tn = await testnet(12, t)
+  const tn = await testnet(10, t)
 
   const a = await create(t, { bootstrap: tn.bootstrap })
   const flockA = await a.initFlock()
@@ -67,25 +60,19 @@ test('userData updates', async function (t) {
 
   await a.setUserData({ hello: 'world' })
 
+  let passed = false
   flockB.on('update', async function onUpdate () {
     const data = await flockB.getByPrefix('flockInfo/')
     if (Object.values(data.members).some(userData => userData.hello === 'world')) {
-      flockB.off('update', onUpdate) // Remove the listener
-      t.pass('b received updated userData')
+      if (!passed)t.pass('b received updated userData')
+      passed = true
     }
-  })
-  t.teardown(async () => {
-    setTimeout(async () => {
-      console.log('workaround for now to avoid session closed hypercore error')
-      a.cleanup()
-      b.cleanup()
-    }, 8000)
   })
 })
 
 test('userData encryption', async function (t) {
   t.plan(2)
-  const tn = await testnet(12, t)
+  const tn = await testnet(10, t)
 
   const a = await create(t, { bootstrap: tn.bootstrap })
   const flockA = await a.initFlock()
@@ -97,28 +84,23 @@ test('userData encryption', async function (t) {
 
   await a.setUserData({ hello: 'world' })
 
+  let okPassed = false
+  let passed = false
   flockB.on('update', async function onUpdate () {
     const data = await flockB.getByPrefix('flockInfo/')
     for (const userId in data.members) {
       if (data.members[userId].hello === 'world') {
-        flockB.off('update', onUpdate)
         try {
           await flockB.set(`flockInfo/members/${userId}`, { name: 'hacker' })
           await flockB.set(`flockInfo/members/${userId}`, { hello: 'hacked you' }, { encryptionKey: flockB.keyPair.secretKey })
+          const result = await flockB.get(`flockInfo/members/${userId}`) // error when closing down
+          if (!okPassed) t.ok(result.name !== 'hacker' && result.hello === 'world', 'should be unchanged')
+          okPassed = true
         } catch { noop() }
-        const result = await flockB.get(`flockInfo/members/${userId}`)
-        console.log(result)
-        t.pass()
-        t.ok(result.name !== 'hacker' && result.hello === 'world', 'should be unchanged')
+        if (!passed) t.pass()
+        passed = true
       }
     }
-  })
-  t.teardown(async () => {
-    setTimeout(async () => {
-      console.log('workaround for now to avoid session closed hypercore error')
-      a.cleanup()
-      b.cleanup()
-    }, 8000)
   })
 })
 
@@ -126,6 +108,7 @@ async function create (t) {
   const dir = await tmp(t)
   const a = new FlockManager(dir)
   await a.ready()
+  t.teardown(async () => await a.cleanup())
   return a
 }
 
