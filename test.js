@@ -47,8 +47,8 @@ test('invites', async function (t) {
   t.teardown(async () => {
     setTimeout(async () => {
       console.log('workaround for now to avoid session closed hypercore error')
-      await a.cleanup()
-      await b.cleanup()
+      a.cleanup()
+      b.cleanup()
     }, 4000)
   })
 })
@@ -77,8 +77,8 @@ test('userData updates', async function (t) {
   t.teardown(async () => {
     setTimeout(async () => {
       console.log('workaround for now to avoid session closed hypercore error')
-      await a.cleanup()
-      await b.cleanup()
+      a.cleanup()
+      b.cleanup()
     }, 4000)
   })
 })
@@ -117,8 +117,8 @@ test('userData encryption', async function (t) {
   t.teardown(async () => {
     setTimeout(async () => {
       console.log('workaround for now to avoid session closed hypercore error')
-      await a.cleanup()
-      await b.cleanup()
+      a.cleanup()
+      b.cleanup()
     }, 4000)
   })
 })
