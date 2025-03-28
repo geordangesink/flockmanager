@@ -1,6 +1,6 @@
 {
   "name": "flockmanager",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "create and manage flocks which hold data and connections to peers connected on a shared hyperswarm topic using invite keys",
   "main": "index.js",
   "scripts": {
