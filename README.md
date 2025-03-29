@@ -83,6 +83,10 @@ Pear.teardown(async () => {
 - sets and updates userdata encrypted across all flocks
 - `data` (object)
 
+### `const info = flock.info`
+- the most up to date info object
+- `{members: {[this.myId]: userData}}` (object) - userData saved as ``flockInfo/members/${this.myId}``
+
 ### `const userData = flockManager.userData`
 
 ### `const flocks = flockManager.flocks`
@@ -114,6 +118,11 @@ Pear.teardown(async () => {
 
 ### `const value = await flock.get(key)`
 - get a value from shared database
+
+### `const nestedValue = await flock.getByPrefix(prefix)`
+- get a nested object for saved directories by providing a prefix
+- `prefix` (string) - e.g `'flockInfo/'` will make a nested object of  `'flockInfo/'`, `'flockInfo/members'`...
+- `nestedValue` (object) - nested object respective to the directories of the prefix
 
 ### `await flock.leave()`
 - leave a flock (NOT FUNCTIONAL UNTIL HYPERCORE "purge" UPDATE)

@@ -119,7 +119,7 @@ class FlockManager extends ReadyResource {
   async get (string) {
     try {
       const rawData = await this.localBee.get(string)
-      const data = rawData.value
+      const data = rawData && rawData.value
       // TODO: check if map can be handled without parsing
       if (typeof data === 'string') {
         try {
@@ -443,6 +443,7 @@ class FlockPairer extends ReadyResource {
 class Flock extends ReadyResource {
   constructor (opts = {}) {
     super()
+    this.custom = opts.custom
     this._info = opts.info || {}
     this._userData = opts.userData || {}
     this._localId = opts.localId || generateLocalId()
@@ -498,6 +499,7 @@ class Flock extends ReadyResource {
       )
 
     this.autobee.on('update', () => {
+      this._updateInfo()
       if (!this.autobee._interrupting) this.emit('update')
     })
   }
@@ -617,35 +619,39 @@ class Flock extends ReadyResource {
   }
 
   async getByPrefix (prefix) {
-    const stream = this.autobee.createReadStream({
-      gte: Buffer.from(prefix),
-      lte: Buffer.from(prefix + '\xFF')
-    })
-
-    const result = {} // flockInfo/
-    const nestObject = (obj, path, value) => {
-      const keys = path.split('/')
-      let current = obj
-
-      keys.forEach((key, index) => {
-        if (index !== keys.length - 1) {
-          current[key] = current[key] || {}
-        } else {
-          current[key] = value || current[key] || {}
-        }
-        current = current[key]
+    try {
+      const stream = this.autobee.createReadStream({
+        gte: Buffer.from(prefix),
+        lte: Buffer.from(prefix + '\xFF')
       })
-    }
-    for await (const { key, value } of stream) {
-      const keyParsed = key.toString()
-      const valueParsed = b4a.isBuffer(value) ? value.toString() : value
-      let path = keyParsed.substring(prefix.length)
-      if (path.startsWith('/')) path = path.substring(1)
 
-      nestObject(result, path, valueParsed)
-    }
+      const result = {} // flockInfo/
+      const nestObject = (obj, path, value) => {
+        const keys = path.split('/')
+        let current = obj
 
-    return result
+        keys.forEach((key, index) => {
+          if (index !== keys.length - 1) {
+            current[key] = current[key] || {}
+          } else {
+            current[key] = value || current[key] || {}
+          }
+          current = current[key]
+        })
+      }
+      for await (const { key, value } of stream) {
+        const keyParsed = key.toString()
+        const valueParsed = b4a.isBuffer(value) ? value.toString() : value
+        let path = keyParsed.substring(prefix.length)
+        if (path.startsWith('/')) path = path.substring(1)
+
+        nestObject(result, path, valueParsed)
+      }
+
+      return result
+    } catch (err) {
+      throw new Error(`Error in getting all Prefix: ${err}`)
+    }
   }
 
   async _setUserData (userData) {
@@ -670,6 +676,11 @@ class Flock extends ReadyResource {
     } catch (err) {
       throw new Error(`error updating flock ${this.localId} userData:`, err)
     }
+  }
+
+  async _updateInfo () {
+    const info = await this.getByPrefix('flockInfo/')
+    this._info = info
   }
 
   async leave () {
