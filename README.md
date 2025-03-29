@@ -37,8 +37,8 @@ await manager.ready();
 
 ```javascript
 const flocks = manager.flocks
-for ( const flockId in flocks ){
-    console.log('Flock is stored in corestore namespace:', flockId)
+for ( const localId in flocks ){
+    console.log('Flock is stored in corestore namespace:', localId)
 }
 ```
 
@@ -86,7 +86,7 @@ Pear.teardown(async () => {
 ### `const userData = flockManager.userData`
 
 ### `const flocks = flockManager.flocks`
-- `flocks` (object) - all flocks with their flockId as key
+- `flocks` (object) - all flocks with their localId as key
 
 ### `await flockManager.set(key, value)`
 - set a key value pair to the flockManager localBee
@@ -97,7 +97,7 @@ Pear.teardown(async () => {
 ### `const flock = await flockManager.initFlock(invite, options, isNew)`
 - `invite` (string) - Optional invite key to join an existing flock.
 - `options` (object) - Configuration options for the flock.
-- `isNew` (boolean) - true by defalut -> anounces user to flock and saves flockId in local db
+- `isNew` (boolean) - true by defalut -> anounces user to flock and saves localId in local db
 
 ### `cosnt invite = flock.invite`
 - permanent hex invite key for the flock
@@ -105,7 +105,7 @@ Pear.teardown(async () => {
 ### `cosnt { members } = flock.info`
 - `members` (object) - Every member of a flock {[z32.encode(flock.autobee.local.key)]: `userData`}.
 
-### `const flockId = flock.flockId`
+### `const localId = flock.localId`
 - local id hex string with which the namespace is opened
 
 ### `await flock.set(key, value, encryptionKey)`

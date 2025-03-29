@@ -17,7 +17,7 @@ const c = require('compact-encoding')
  * @property {Hyperbee} [flocksBee] - local hyperbee for personal storage (for now)
  * @property {Hyperswarm} [swarm] - Hyperswarm instance
  * @property {BlindPairing} [pairing] - BlindPairing instance
- * @property {Object} [flocks] - flockId key and flock instance value
+ * @property {Object} [flocks] - Id key and flock instance value
  * @property {Set} [discoveryKeys] - joined flocks dicovery keys
  */
 class FlockManager extends ReadyResource {
@@ -69,9 +69,9 @@ class FlockManager extends ReadyResource {
       const flocksInfoMap = jsonToMap(flocksInfo.value.toString())
       const userData = (userDataDb && userDataDb.value) || {}
       this._userData = userData
-      for (const [flockId, infoMap] of flocksInfoMap) {
+      for (const [localId, infoMap] of flocksInfoMap) {
         const info = infoMap.get('info')
-        await this.initFlock(undefined, { info, flockId, userData }, false)
+        await this.initFlock(undefined, { info, localId, userData }, false)
       }
     } else {
       await this.flocksBee.put('flocksInfo', mapToJson(new Map()))
@@ -137,11 +137,11 @@ class FlockManager extends ReadyResource {
 
   /**
    * gets configuration options for a flock
-   * @param {string} flockId - Unique flock identifier
+   * @param {string} localId - Unique flock identifier
    * @returns {Object} flock configuration options
    */
-  getFlockOptions (flockId) {
-    const corestore = flockId ? this.corestore.namespace(flockId) : this.corestore
+  getFlockOptions (localId) {
+    const corestore = localId ? this.corestore.namespace(localId) : this.corestore
     return { corestore, swarm: this.swarm, pairing: this.pairing }
   }
 
@@ -165,8 +165,8 @@ class FlockManager extends ReadyResource {
    */
   async initFlock (invite = '', opts = {}, isNew = true) {
     let flock
-    const flockId = opts.flockId || generateFlockId()
-    const baseOpts = { ...opts, flockId, ...this.getFlockOptions(flockId), userData: this._userData, isNew }
+    const localId = opts.localId || generateLocalId()
+    const baseOpts = { ...opts, localId, ...this.getFlockOptions(localId), userData: this._userData, isNew }
     if (invite) {
       // check for invalid invite or already joined
       const discoveryKey = await this.getDiscoveryKey(invite)
@@ -184,10 +184,10 @@ class FlockManager extends ReadyResource {
       await flock.ready()
     }
 
-    this.flocks[flockId] = flock
+    this.flocks[localId] = flock
     flock.on('flockClosed', () => {
       if (this.closingDown) return
-      delete this.flocks[flockId]
+      delete this.flocks[localId]
       if (Object.keys(this.flocks).length > 0) return
       this.emit('lastFlockClosed')
     })
@@ -249,8 +249,8 @@ class FlockManager extends ReadyResource {
       ? jsonToMap(flocksInfoDb.value.toString())
       : new Map()
 
-    if (flocksInfoMap.has(flock.flockId)) {
-      flocksInfoMap.delete(flock.flockId)
+    if (flocksInfoMap.has(flock.localId)) {
+      flocksInfoMap.delete(flock.localId)
       await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
     }
   }
@@ -267,9 +267,9 @@ class FlockManager extends ReadyResource {
       const flocksInfoMap = flocksInfoDb
         ? jsonToMap(flocksInfoDb.value.toString())
         : new Map()
-      if (!flocksInfoMap.has(flock.flockId)) {
+      if (!flocksInfoMap.has(flock.localId)) {
         const detailsMap = new Map([['info', flock.info]])
-        flocksInfoMap.set(flock.flockId, detailsMap)
+        flocksInfoMap.set(flock.localId, detailsMap)
         await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
       }
     } catch (err) {
@@ -285,11 +285,11 @@ class FlockManager extends ReadyResource {
    * @returns {Flock}
    */
   async findFlock (discoveryKey) {
-    for (const flockId in this.flocks) {
+    for (const localId in this.flocks) {
       if (
-        z32.encode(this.flocks[flockId].metadata.discoveryKey) === discoveryKey
+        z32.encode(this.flocks[localId].metadata.discoveryKey) === discoveryKey
       ) {
-        return this.flocks[flockId]
+        return this.flocks[localId]
       }
     }
   }
@@ -333,7 +333,7 @@ class FlockPairer extends ReadyResource {
     super()
     this.info = opts.info
     this.userData = opts.userData
-    this.flockId = opts.flockId
+    this.localId = opts.localId
     this.store = store
     this.invite = invite
     this.swarm = opts.swarm
@@ -372,7 +372,7 @@ class FlockPairer extends ReadyResource {
             isNew: true,
             info: this.info,
             userData: this.userData,
-            flockId: this.flockId
+            localId: this.localId
           })
         }
         this.swarm = null
@@ -427,7 +427,7 @@ class FlockPairer extends ReadyResource {
  * @param {object} [opts] - pass optional info or hyper-objects
  * @param {string} [opts.storageDir] - Optional storage directory
  * @property {Object} [info] - flock info
- * @property {string} [flockId] -  flock identifier
+ * @property {string} [localId] -  flock identifier
  * @property {Autobee} [autobee] - Autobee instance
  * @property {Corestore} [corestore] - Corestore instance
  * @property {Hyperswarm} [swarm] - Hyperswarm instance
@@ -445,7 +445,7 @@ class Flock extends ReadyResource {
     super()
     this._info = opts.info || {}
     this._userData = opts.userData || {}
-    this._flockId = opts.flockId || generateFlockId()
+    this._localId = opts.localId || generateLocalId()
     this._keyPair = null
     this.isNew = opts.isNew
 
@@ -475,8 +475,8 @@ class Flock extends ReadyResource {
     return this._userData
   }
 
-  get flockId () {
-    return this._flockId
+  get localId () {
+    return this._localId
   }
 
   get keyPair () {
@@ -668,7 +668,7 @@ class Flock extends ReadyResource {
 
       await this.autobee.put(`flockInfo/members/${this.myId}`, userData, { encryptionKey: this.keyPair.secretKey })
     } catch (err) {
-      throw new Error(`error updating flock ${this.flockId} userData:`, err)
+      throw new Error(`error updating flock ${this.localId} userData:`, err)
     }
   }
 
@@ -732,7 +732,7 @@ async function apply (batch, view, base) {
  * Generates a unique flock identifier
  * @returns {string} Unique flock ID combining timestamp and random string
  */
-function generateFlockId () {
+function generateLocalId () {
   const timestamp = Date.now().toString(36) // Base36 timestamp
   const random = Math.random().toString(36).slice(2, 5) // 5 random chars
   return `flock-${timestamp}-${random}`
