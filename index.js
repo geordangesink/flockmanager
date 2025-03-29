@@ -70,8 +70,8 @@ class FlockManager extends ReadyResource {
       const userData = (userDataDb && userDataDb.value) || {}
       this._userData = userData
       for (const [localId, infoMap] of flocksInfoMap) {
-        const info = infoMap.get('info')
-        await this.initFlock(undefined, { info, localId, userData }, false)
+        const custom = infoMap.get('custom')
+        await this.initFlock(undefined, { custom, localId, userData }, false)
       }
     } else {
       await this.flocksBee.put('flocksInfo', mapToJson(new Map()))
@@ -268,7 +268,7 @@ class FlockManager extends ReadyResource {
         ? jsonToMap(flocksInfoDb.value.toString())
         : new Map()
       if (!flocksInfoMap.has(flock.localId)) {
-        const detailsMap = new Map([['info', flock.info]])
+        const detailsMap = new Map([['custom', flock.custom]])
         flocksInfoMap.set(flock.localId, detailsMap)
         await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
       }
@@ -295,18 +295,19 @@ class FlockManager extends ReadyResource {
   }
 
   async cleanup () {
+    this.closingDown = true
     if (this.isSaving) {
       // Wait for the saving to complete before closing
       await new Promise(resolve => {
+        let attempts = 0
         const checkSaving = setInterval(() => {
-          if (!this.isSaving) {
+          if (!this.isSaving || attempts > 300) {
             clearInterval(checkSaving)
             resolve()
           }
         }, 100)
       })
     }
-    this.closingDown = true
     const exitPromises = Object.values(this.flocks).map((flock) => flock._exit())
     await Promise.all(exitPromises)
     this.flocks = {}
@@ -512,6 +513,7 @@ class Flock extends ReadyResource {
     this._keyPair = await this.corestore.createKeyPair('awesome')
     if (!this.replicate) return
     await this.autobee.ready()
+    await this._updateInfo()
     this.myId = z32.encode(this.autobee.local.key)
 
     this.swarm.on('connection', async (conn) => {
