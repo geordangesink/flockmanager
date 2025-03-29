@@ -137,9 +137,11 @@ Pear.teardown(async () => {
 - gets a discoverykey of a flock using an invite
 - `invite` (string) - invite hex key
 
-### `const pair = FlockManager.pair(invite)`
+### `const pair = FlockManager.pair(invite, basis, opts)`
 - flockManager.initFlock() uses this automatically when passing an invite
 - `invite` (string) - invite hex key
+- `basis` (object) - basis for flock needs to contain corestore `{corestore, swarm, pairing, bootstrap}`
+- `opts` (object) - additional data opts that spread to final flock `{custom, info, userData, localId, isNew, replicate}`
 - `pair` (object) - A FlockPairer instance
 - `pair.finished()` (method) - returns the joined flock
 

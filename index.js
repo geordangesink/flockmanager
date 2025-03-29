@@ -166,19 +166,20 @@ class FlockManager extends ReadyResource {
   async initFlock (invite = '', opts = {}, isNew = true) {
     let flock
     const localId = opts.localId || generateLocalId()
-    const baseOpts = { ...opts, localId, ...this.getFlockOptions(localId), userData: this._userData, isNew }
+    const baseOpts = { ...opts, localId, userData: this._userData, isNew }
+    const basis = this.getFlockOptions(localId)
     if (invite) {
       // check for invalid invite or already joined
       const discoveryKey = await this.getDiscoveryKey(invite)
       if (discoveryKey === 'invalid') return false
       else if (discoveryKey) return this.findFlock(discoveryKey)
 
-      const pair = FlockManager.pair(invite, baseOpts)
+      const pair = FlockManager.pair(invite, basis, baseOpts)
       flock = await pair.finished()
       flock.on('leaveflock', () => this._deleteFlock(flock))
       if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
     } else {
-      flock = new Flock(baseOpts)
+      flock = new Flock({ ...basis, ...baseOpts })
       flock.on('leaveflock', () => this._deleteFlock(flock))
       if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
       await flock.ready()
@@ -200,12 +201,15 @@ class FlockManager extends ReadyResource {
 
   /**
    * to join an existing flock
-   * @param {Object} opts
+   * @param {string} [invite]
+   * @param {Object} [basis] - neede for connection (store, swarm, pairing) can also pass bootstrap
+   * @param {Object} opts - optional data that will be passed to the flock
    * @returns {FlockPairer} - pairs flocks. await flockPairer.finished() to return joined flock
    */
-  static pair (invite, opts = {}) {
-    const store = opts.corestore
-    return new FlockPairer(store, invite, opts)
+  static pair (invite, basis, opts) {
+    if (!basis || !basis.corestore) throw new Error('Need to pass a corestore with basis')
+    const store = basis.corestore
+    return new FlockPairer(store, invite, basis, opts)
   }
 
   /**
@@ -299,7 +303,7 @@ class FlockManager extends ReadyResource {
     if (this.isSaving) {
       // Wait for the saving to complete before closing
       await new Promise(resolve => {
-        let attempts = 0
+        const attempts = 0
         const checkSaving = setInterval(() => {
           if (!this.isSaving || attempts > 300) {
             clearInterval(checkSaving)
@@ -330,17 +334,15 @@ class FlockManager extends ReadyResource {
  * @typedef {class} [FlockPairer] - pairs to an existing flock using invite key
  */
 class FlockPairer extends ReadyResource {
-  constructor (store, invite, opts = {}) {
+  constructor (store, invite, basis = {}, opts = {}) {
     super()
-    this.info = opts.info
-    this.userData = opts.userData
-    this.localId = opts.localId
+    this.opts = opts
     this.store = store
     this.invite = invite
-    this.swarm = opts.swarm
-    this.pairing = opts.pairing
+    this.swarm = basis.swarm
+    this.pairing = basis.pairing
     this.candidate = null
-    this.bootstrap = opts.bootstrap || null
+    this.bootstrap = basis.bootstrap || null
     this.onresolve = null
     this.onreject = null
     this.flock = null
@@ -371,9 +373,7 @@ class FlockPairer extends ReadyResource {
             encryptionKey: result.encryptionKey,
             bootstrap: this.bootstrap,
             isNew: true,
-            info: this.info,
-            userData: this.userData,
-            localId: this.localId
+            ...this.opts
           })
         }
         this.swarm = null
@@ -444,7 +444,7 @@ class FlockPairer extends ReadyResource {
 class Flock extends ReadyResource {
   constructor (opts = {}) {
     super()
-    this.custom = opts.custom
+    this.custom = opts.custom || {}
     this._info = opts.info || {}
     this._userData = opts.userData || {}
     this._localId = opts.localId || generateLocalId()
