@@ -90,7 +90,7 @@ class FlockManager extends ReadyResource {
         flock._setUserData(userData)
       }
     } catch (err) {
-      throw new Error(`error in updating userData: ${err}`)
+      throw new Error(`Error in updating userData: ${err}`)
     }
   }
 
@@ -107,7 +107,7 @@ class FlockManager extends ReadyResource {
       if (newData instanceof Map) newData = mapToJson(data)
       await this.localBee.put(string, newData)
     } catch (err) {
-      throw new Error(`error in updating local storage: ${err}`)
+      throw new Error(`Error in updating local storage: ${err}`)
     }
   }
 
@@ -131,7 +131,7 @@ class FlockManager extends ReadyResource {
       }
       return data
     } catch (err) {
-      throw new Error(`error in getting "${string}": ${err}`)
+      throw new Error(`Error in getting "${string}": ${err}`)
     }
   }
 
@@ -236,7 +236,7 @@ class FlockManager extends ReadyResource {
         await core.ready()
         await core.purge()
       } catch (err) {
-        throw new Error(`error in purging hypercore: ${err}`)
+        throw new Error(`Error in purging hypercore: ${err}`)
       }
     })
 
@@ -273,7 +273,7 @@ class FlockManager extends ReadyResource {
         await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
       }
     } catch (err) {
-      throw new Error(`error in saving flock info to local db: ${err}`)
+      throw new Error(`Error in saving flock info to local db: ${err}`)
     } finally {
       this.isSaving = false
     }
@@ -573,7 +573,7 @@ class Flock extends ReadyResource {
       const discovery = this.swarm.join(this.autobee.discoveryKey)
       await discovery.flushed()
     } catch (err) {
-      throw new Error(`error joining swarm topic: ${err}`)
+      throw new Error(`Error joining swarm topic: ${err}`)
     }
   }
 
@@ -591,7 +591,7 @@ class Flock extends ReadyResource {
       if (newData instanceof Map) newData = mapToJson(newData)
       await this.autobee.put(key, newData, { encryptionKey })
     } catch (err) {
-      throw new Error(`error in updating local storage: ${err}`)
+      throw new Error(`Error in updating local storage: ${err}`)
     }
   }
 
@@ -614,7 +614,7 @@ class Flock extends ReadyResource {
       }
       return data
     } catch (err) {
-      throw new Error(`error in getting "${key}":`, err)
+      throw new Error(`Error in getting "${key}": ${err}`)
     }
   }
 
@@ -674,7 +674,7 @@ class Flock extends ReadyResource {
 
       await this.autobee.put(`flockInfo/members/${this.myId}`, userData, { encryptionKey: this.keyPair.secretKey })
     } catch (err) {
-      throw new Error(`error updating flock ${this.localId} userData:`, err)
+      throw new Error(`Error in updating flock ${this.localId} userData: ${err}`)
     }
   }
 
