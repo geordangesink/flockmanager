@@ -143,8 +143,12 @@ Pear.teardown(async () => {
 - `pair` (object) - A FlockPairer instance
 - `pair.finished()` (method) - returns the joined flock
 
+### `const flocksInfo = await flockManager.flocksBee.get('flocksInfo')`
+- locally saved data of information on every flock (MAY CHANGE on hyperdb mmigration)
+- `flocksInfo` (map) - `[[ Id, Map([['custom', {}]]) ]]`
+
 ### `await flockManager.saveFlock(flock)`
-- saves the flock namespace to local storage for re-open (automatically handled by .initFlock)
+- saves the flock namespace Id along its `.custom` to local storage for re-open (automatically handled by .initFlock)
 
 ## License
 
