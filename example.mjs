@@ -1,6 +1,13 @@
 import FlockManager from './index.js'
+import fs from 'fs'
 
-const flockManager = new FlockManager('example/' + process.argv[2])
+// clean start
+const dir = 'example/' + process.argv[2]
+if (fs.existsSync(dir)) {
+  fs.rmSync(dir, { recursive: true, force: true })
+}
+
+const flockManager = new FlockManager(dir)
 await flockManager.ready()
 process.on('beforeExit', () => flockManager.cleanup())
 
@@ -9,7 +16,7 @@ await flockManager.setUserData({ name: 'Steve' })
 const flock = await flockManager.initFlock(process.argv[3])
 console.log('invite', flock.invite)
 
-flock.autobee.on('update', onupdate)
+flock.on('update', onupdate)
 
 await flockManager.setUserData({ name: 'Jack Black' })
 
@@ -22,7 +29,7 @@ console.log(steve, blackJack)
 
 async function onupdate () {
   console.log('db chanded, flock info:')
-  const data = await flock.autobee.get('flockInfo')
+  const data = await flock.getByPrefix('flockInfo/')
   console.log(data)
   if (flock.autobee.system.members === 2 && Object.values(data.members).map(userData => userData.name === 'Jack Black' && 1).length === 2) {
     setTimeout(() => {
