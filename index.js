@@ -271,11 +271,10 @@ class FlockManager extends ReadyResource {
       const flocksInfoMap = flocksInfoDb
         ? jsonToMap(flocksInfoDb.value.toString())
         : new Map()
-      if (!flocksInfoMap.has(flock.localId)) {
-        const detailsMap = new Map([['custom', flock.custom]])
-        flocksInfoMap.set(flock.localId, detailsMap)
-        await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
-      }
+      const flockMap = flocksInfoMap.has(flock.localId) ? flocksInfoMap.has(flock.localId) : new Map()
+      flockMap.set('custom', flock.custom)
+      flocksInfoMap.set(flock.localId, flockMap)
+      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
     } catch (err) {
       throw new Error(`Error in saving flock info to local db: ${err}`)
     } finally {
