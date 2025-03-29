@@ -295,18 +295,19 @@ class FlockManager extends ReadyResource {
   }
 
   async cleanup () {
+    this.closingDown = true
     if (this.isSaving) {
       // Wait for the saving to complete before closing
       await new Promise(resolve => {
+        let attempts = 0
         const checkSaving = setInterval(() => {
-          if (!this.isSaving) {
+          if (!this.isSaving || attempts > 300) {
             clearInterval(checkSaving)
             resolve()
           }
         }, 100)
       })
     }
-    this.closingDown = true
     const exitPromises = Object.values(this.flocks).map((flock) => flock._exit())
     await Promise.all(exitPromises)
     this.flocks = {}
