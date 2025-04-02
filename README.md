@@ -45,7 +45,7 @@ for ( const localId in flocks ){
 ### Creating a New Flock
 
 ```javascript
-const flock = await manager.initFlock();
+const flock = await manager.create();
 console.log('New flock created with invite:', flock.invite);
 ```
 
@@ -53,7 +53,7 @@ console.log('New flock created with invite:', flock.invite);
 
 ```javascript
 const invite = 'your-invite-code';
-const joinedFlock = await manager.initFlock(invite);
+const joinedFlock = await manager.create(invite);
 ```
 
 ### Setting User Data
@@ -66,7 +66,7 @@ await manager.setUserData({ name: 'Alice', age: '32' });
 
 ```javascript
 Pear.teardown(async () => {
-    await manager.cleanup();
+    await manager.close();
 });
 ```
 
@@ -76,7 +76,7 @@ Pear.teardown(async () => {
 - `storageDir` (string) - Path for storing data (default: `./storage`).
 - `options` (object) - Additional configuration options.
 
-### `await flockManager.cleanup()`
+### `await flockManager.close()`
 - cleans up all allocated resources and closes manager.
 
 ### `await flockManager.setUserData(data)`
@@ -89,7 +89,7 @@ Pear.teardown(async () => {
 
 ### `const userData = flockManager.userData`
 
-### `const flocks = flockManager.flocks`
+### `const flocks = flockManager.all`
 - `flocks` (object) - all flocks with their localId as key
 
 ### `await flockManager.set(key, value)`
@@ -98,7 +98,7 @@ Pear.teardown(async () => {
 ### `const value = await flockManager.get(key)`
 - get a value from the flockManager localBee
 
-### `const flock = await flockManager.initFlock(invite, options, isNew)`
+### `const flock = await flockManager.create(invite, options, isNew)`
 - `invite` (string) - Optional invite key to join an existing flock.
 - `options` (object) - Configuration options for the flock.
 - `isNew` (boolean) - true by defalut -> anounces user to flock and saves localId in local db
@@ -129,9 +129,9 @@ Pear.teardown(async () => {
 
 ## Advanced
 
-### `const stream = flockManager.getFlockCoreStream(flock)`
-- an alias stream of all hypercores within the flocks namespace
-- `data` (stream object) - holds alias and discoveryKey of core
+### `const stream = flockManager.getCoreStream(flock)`
+- a stream of all hypercores within the flocks namespace
+- `data` (stream param) - holds discoveryKey of core
 
 ### `const flockDiscoveryKey = flockManager.getDiscoveryKey(invite)`
 - gets a discoverykey of a flock using an invite
@@ -149,7 +149,7 @@ Pear.teardown(async () => {
 - locally saved data of information on every flock (MAY CHANGE on hyperdb mmigration)
 - `flocksInfo` (map) - `[[ Id, Map([['custom', {}]]) ]]`
 
-### `await flockManager.saveFlock(flock)`
+### `await flockManager.save(flock)`
 - saves the flock namespace Id along its `.custom` to local storage for re-open (automatically handled by .initFlock)
 
 ## License

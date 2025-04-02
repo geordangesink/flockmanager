@@ -9,8 +9,10 @@ const { EventEmitter } = require('events')
 const z32 = require('z32')
 const b4a = require('b4a')
 const c = require('compact-encoding')
+const deprecationMessage = (deprecated, newName) => console.warn(`${deprecated} is deprecated. Use ${newName} instead`)
 
 /**
+ * @extends ReadyResource
  * @typedef {class} [FlockManager] - Creates, saves and manages all flocks
  * @param {string} [storageDir] - difine a storage path (defaults to ./storage)
  * @property {Corestore} [corestore] - Corestore instance
@@ -25,17 +27,22 @@ class FlockManager extends ReadyResource {
     super()
     this.storageDir = storageDir || './storage'
     this.corestore = new Corestore(this.storageDir)
-    this.flocksBee = null
+    this.managerBee = null
     this.localBee = null
     this.keyPair = null
     this.bootstrap = opts.bootstrap || null
     this.swarm = new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
     this.isSaving = false
-    this.flocks = {}
+    this.all = {}
     this._userData = {}
     this.discoveryKeys = new Set()
     this.ready().catch(noop)
+  }
+
+  get flocks () {
+    deprecationMessage('.flocks', '.all')
+    return this.all
   }
 
   get userData () {
@@ -45,14 +52,14 @@ class FlockManager extends ReadyResource {
   async _open () {
     await this.corestore.ready()
     this.keyPair = await this.corestore.createKeyPair('flockManager')
-    this.flocksBee = new Hyperbee(
-      this.corestore.namespace('localData').get({ name: 'flocksBee' }),
+    this.managerBee = new Hyperbee(
+      this.corestore.namespace('localData').get({ name: 'managerBee' }),
       {
         keyEncoding: 'utf-8',
         valueEncoding: c.any
       }
     )
-    await this.flocksBee.ready()
+    await this.managerBee.ready()
     this.localBee = new Hyperbee(
       this.corestore.namespace('localData').get({ name: 'localBee' }),
       {
@@ -62,19 +69,19 @@ class FlockManager extends ReadyResource {
     )
     await this.localBee.ready()
 
-    const flocksInfo = await this.flocksBee.get('flocksInfo')
+    const managerInfo = await this.managerBee.get('managerInfo')
     const userDataDb = await this.localBee.get('userData')
 
-    if (flocksInfo && flocksInfo.value) {
-      const flocksInfoMap = jsonToMap(flocksInfo.value.toString())
+    if (managerInfo && managerInfo.value) {
+      const managerInfoMap = jsonToMap(managerInfo.value.toString())
       const userData = (userDataDb && userDataDb.value) || {}
       this._userData = userData
-      for (const [localId, infoMap] of flocksInfoMap) {
+      for (const [localId, infoMap] of managerInfoMap) {
         const custom = infoMap.get('custom')
-        await this.initFlock(undefined, { custom, localId, userData }, false)
+        await this.create(undefined, { custom, localId, userData }, false)
       }
     } else {
-      await this.flocksBee.put('flocksInfo', mapToJson(new Map()))
+      await this.managerBee.put('managerInfo', mapToJson(new Map()))
     }
   }
 
@@ -86,7 +93,7 @@ class FlockManager extends ReadyResource {
     try {
       if (typeof userData !== 'object') throw new Error('userData must be typeof Object', TypeError)
       await this.localBee.put('userData', userData)
-      for await (const flock of Object.values(this.flocks)) {
+      for await (const flock of Object.values(this.all)) {
         flock._setUserData(userData)
       }
     } catch (err) {
@@ -140,9 +147,14 @@ class FlockManager extends ReadyResource {
    * @param {string} localId - Unique flock identifier
    * @returns {Object} flock configuration options
    */
-  getFlockOptions (localId) {
+  getOptions (localId) {
     const corestore = localId ? this.corestore.namespace(localId) : this.corestore
     return { corestore, swarm: this.swarm, pairing: this.pairing }
+  }
+
+  getFlockOptions (localId) {
+    deprecationMessage('.getFlockOptions()', '.getOptions()')
+    return this.getOptions(localId)
   }
 
   /**
@@ -150,10 +162,16 @@ class FlockManager extends ReadyResource {
    * @param {Flock} flock - flock instance
    * @returns {stream} - stream of hypercores within the flocks namespace
    */
-  getFlockCoresStream (flock) {
+  getCoresStream (flock) {
+    // update
     const namespace = flock.corestore.ns
     const stream = flock.corestore.storage.createAliasStream(namespace)
     return stream
+  }
+
+  getFlockCoresStream (flock) {
+    deprecationMessage('.getFlockCoresStream()', '.getCoresStream()')
+    return this.getCoresStream(flock)
   }
 
   /**
@@ -163,40 +181,45 @@ class FlockManager extends ReadyResource {
    * @param {boolean} [isNew] - tries to open existing flock if false
    * @returns {Flock || false} New flock instance or false on invalid invite
    */
-  async initFlock (invite = '', opts = {}, isNew = true) {
+  async create (invite = '', opts = {}, isNew = true) {
     let flock
     const localId = opts.localId || generateLocalId()
     const baseOpts = { ...opts, localId, userData: this._userData, isNew }
-    const basis = this.getFlockOptions(localId)
+    const basis = this.getOptions(localId)
     if (invite) {
       // check for invalid invite or already joined
       const discoveryKey = await this.getDiscoveryKey(invite)
       if (discoveryKey === 'invalid') return false
-      else if (discoveryKey) return this.findFlock(discoveryKey)
+      else if (discoveryKey) return this.find(discoveryKey)
 
       const pair = FlockManager.pair(invite, basis, baseOpts)
       flock = await pair.finished()
-      flock.on('leaveflock', () => this._deleteFlock(flock))
-      if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
+      flock.on('leave', () => this._remove(flock))
+      if (isNew) flock.on('allDataThere', () => this.save(flock))
     } else {
       flock = new Flock({ ...basis, ...baseOpts })
-      flock.on('leaveflock', () => this._deleteFlock(flock))
-      if (isNew) flock.on('allDataThere', () => this.saveFlock(flock))
+      flock.on('leave', () => this._remove(flock))
+      if (isNew) flock.on('allDataThere', () => this.save(flock))
       await flock.ready()
     }
 
-    this.flocks[localId] = flock
-    flock.on('flockClosed', () => {
+    this.all[localId] = flock
+    flock.on('closed', () => {
       if (this.closingDown) return
-      delete this.flocks[localId]
-      if (Object.keys(this.flocks).length > 0) return
-      this.emit('lastFlockClosed')
+      delete this.all[localId]
+      if (Object.keys(this.all).length > 0) return
+      this.emit('lastClosed')
     })
-    this.emit('newFlock', flock)
+    this.emit('created', flock)
 
     if (!this.discoveryKeys.has(flock.discoveryKey)) { this.discoveryKeys.add(flock.discoveryKey) }
 
     return flock
+  }
+
+  async initFlock (invite, opts, isNew) {
+    deprecationMessage('.initFlock()', '.create()')
+    return await this.create(invite, opts, isNew)
   }
 
   /**
@@ -231,8 +254,8 @@ class FlockManager extends ReadyResource {
     }
   }
 
-  async _deleteFlock (flock) {
-    const stream = this.getFlockCoresStream(flock)
+  async _remove (flock) {
+    const stream = this.getCoresStream(flock)
 
     stream.on('data', async (data) => {
       try {
@@ -248,33 +271,38 @@ class FlockManager extends ReadyResource {
       console.log('flock purge stream ended.')
     })
 
-    const flocksInfoDb = await this.flocksBee.get('flocksInfo')
-    const flocksInfoMap = flocksInfoDb
-      ? jsonToMap(flocksInfoDb.value.toString())
+    const managerInfoDb = await this.managerBee.get('managerInfo')
+    const managerInfoMap = managerInfoDb
+      ? jsonToMap(managerInfoDb.value.toString())
       : new Map()
 
-    if (flocksInfoMap.has(flock.localId)) {
-      flocksInfoMap.delete(flock.localId)
-      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+    if (managerInfoMap.has(flock.localId)) {
+      managerInfoMap.delete(flock.localId)
+      await this.managerBee.put('managerInfo', Buffer.from(mapToJson(managerInfoMap)))
     }
+  }
+
+  async _deleteFlock (flock) {
+    deprecationMessage('._deleteFlock()', '._remove()')
+    return await this._remove(flock)
   }
 
   /**
    *  store folder key and flock id in personal db
    * @param {Flock}
    */
-  async saveFlock (flock) {
+  async save (flock) {
     if (this.closingDown) return
     this.isSaving = true
     try {
-      const flocksInfoDb = await this.flocksBee.get('flocksInfo')
-      const flocksInfoMap = flocksInfoDb
-        ? jsonToMap(flocksInfoDb.value.toString())
+      const managerInfoDb = await this.managerBee.get('managerInfo')
+      const managerInfoMap = managerInfoDb
+        ? jsonToMap(managerInfoDb.value.toString())
         : new Map()
-      const flockMap = flocksInfoMap.has(flock.localId) ? flocksInfoMap.get(flock.localId) : new Map()
+      const flockMap = managerInfoMap.has(flock.localId) ? managerInfoMap.get(flock.localId) : new Map()
       flockMap.set('custom', flock.custom)
-      flocksInfoMap.set(flock.localId, flockMap)
-      await this.flocksBee.put('flocksInfo', Buffer.from(mapToJson(flocksInfoMap)))
+      managerInfoMap.set(flock.localId, flockMap)
+      await this.managerBee.put('managerInfo', Buffer.from(mapToJson(managerInfoMap)))
     } catch (err) {
       throw new Error(`Error in saving flock info to local db: ${err}`)
     } finally {
@@ -282,22 +310,32 @@ class FlockManager extends ReadyResource {
     }
   }
 
+  async saveFlock (flock) {
+    deprecationMessage('.saveFlock()', '.save()')
+    return await this.save(flock)
+  }
+
   /**
    * Find a flock with its descoveryKey
    * @param {string}
    * @returns {Flock}
    */
-  async findFlock (discoveryKey) {
-    for (const localId in this.flocks) {
+  find (discoveryKey) {
+    for (const localId in this.all) {
       if (
-        z32.encode(this.flocks[localId].metadata.discoveryKey) === discoveryKey
+        z32.encode(this.all[localId].metadata.discoveryKey) === discoveryKey
       ) {
-        return this.flocks[localId]
+        return this.all[localId]
       }
     }
   }
 
-  async cleanup () {
+  findFLock (discoveryKey) {
+    deprecationMessage('.findFlock()', '.find()')
+    return this.find(discoveryKey)
+  }
+
+  async close () {
     this.closingDown = true
     if (this.isSaving) {
       // Wait for the saving to complete before closing
@@ -311,17 +349,22 @@ class FlockManager extends ReadyResource {
         }, 100)
       })
     }
-    const exitPromises = Object.values(this.flocks).map((flock) => flock._exit())
+    const exitPromises = Object.values(this.all).map((flock) => flock._exit())
     await Promise.all(exitPromises)
-    this.flocks = {}
+    this.all = {}
 
     // Clean up other resources
     await this.localBee.close()
-    await this.flocksBee.close()
+    await this.managerBee.close()
     await this.pairing.close()
     await this.swarm.destroy()
     await this.corestore.close()
     this.closingDown = false
+  }
+
+  async cleanup () {
+    deprecationMessage('.cleanup()', '.close()')
+    return await this.close()
   }
 
   isClosingDown () {
@@ -330,6 +373,7 @@ class FlockManager extends ReadyResource {
 }
 
 /**
+ * @extends ReadyResource
  * @typedef {class} [FlockPairer] - pairs to an existing flock using invite key
  */
 class FlockPairer extends ReadyResource {
@@ -423,6 +467,7 @@ class FlockPairer extends ReadyResource {
 }
 
 /**
+ * @extends ReadyResource
  * @typedef {class} [Flock] - hold information and flock objects
  * @param {object} [opts] - pass optional info or hyper-objects
  * @param {string} [opts.storageDir] - Optional storage directory
@@ -434,11 +479,6 @@ class FlockPairer extends ReadyResource {
  * @property {BlindPairing} [pairing] - BlindPairing instance
  * @property {string} [invite] - invite code
  * @property {Object} [metadata] - flock metadata
- */
-
-/**
- * Represents a single calendar flock for peer-planning
- * @extends EventEmitter
  */
 class Flock extends ReadyResource {
   constructor (opts = {}) {
@@ -696,14 +736,14 @@ class Flock extends ReadyResource {
         await this._exit()
       }
     }
-    this.emit('leaveFlock')
+    this.emit('leave')
   }
 
   async _exit () {
     await this.member.close()
     await this.swarm.leave(this.autobee.discoveryKey)
     await this.autobee.close()
-    this.emit('flockClosed')
+    this.emit('closed')
   }
 }
 
