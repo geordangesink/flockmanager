@@ -66,7 +66,7 @@ test('userData updates', async function (t) {
     const data = await flockB.getByPrefix('flockInfo/')
     if (Object.values(data.members).some(userData => userData.hello === 'world')) {
       if (!passed)t.pass('b received updated userData')
-      if (flockB.info.members[flockA.myId].hello === 'world') t.pass('flock.info updated')
+      if (!passed && flockB.info.members[flockA.myId].hello === 'world') t.pass('flock.info updated in b')
       passed = true
     }
   })
