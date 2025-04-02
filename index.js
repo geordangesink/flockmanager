@@ -335,7 +335,7 @@ class FlockManager extends ReadyResource {
     return this.find(discoveryKey)
   }
 
-  async close () {
+  async _close () {
     this.closingDown = true
     if (this.isSaving) {
       // Wait for the saving to complete before closing
