@@ -163,9 +163,8 @@ class FlockManager extends ReadyResource {
    * @returns {stream} - stream of hypercores within the flocks namespace
    */
   getCoresStream (flock) {
-    // update
     const namespace = flock.corestore.ns
-    const stream = flock.corestore.storage.createAliasStream(namespace)
+    const stream = flock.corestore.list(namespace)
     return stream
   }
 
@@ -259,7 +258,7 @@ class FlockManager extends ReadyResource {
 
     stream.on('data', async (data) => {
       try {
-        const core = this.corestore.get(data.discoveryKey)
+        const core = this.corestore.get(data)
         await core.ready()
         await core.purge()
       } catch (err) {
