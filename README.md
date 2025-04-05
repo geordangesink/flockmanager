@@ -131,7 +131,7 @@ Pear.teardown(async () => {
 
 ### `const stream = flockManager.getCoreStream(flock)`
 - a stream of all hypercores within the flocks namespace
-- `data` (stream param) - holds discoveryKey of core
+- `dk` (stream param) - discoveryKey of core
 
 ### `const flockDiscoveryKey = flockManager.getDiscoveryKey(invite)`
 - gets a discoverykey of a flock using an invite
