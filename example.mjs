@@ -28,7 +28,7 @@ const blackJack = await flock.get('BlackJack')
 console.log(steve, blackJack)
 
 async function onupdate () {
-  console.log('db chanded, flock info:')
+  console.log('db changed, flock info:')
   const data = await flock.getByPrefix('flockInfo/')
   console.log(data)
   if (flock.autobee.system.members === 2 && Object.values(data.members).map(userData => userData.name === 'Jack Black' && 1).length === 2) {
