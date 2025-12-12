@@ -92,6 +92,7 @@ class FlockManager extends ReadyResource {
   async setUserData (userData) {
     try {
       if (typeof userData !== 'object') throw new Error('userData must be typeof Object', TypeError)
+      this._userData = userData
       await this.localBee.put('userData', userData)
       for await (const flock of Object.values(this.all)) {
         flock._setUserData(userData)
@@ -566,7 +567,7 @@ class Flock extends ReadyResource {
     this.opened = true
     this.invite = await this._createInvite().catch(noop)
     if (this.isNew) {
-      this._setUserData().catch(noop)
+      this._setUserData(this._userData).catch(noop)
     }
     this.emit('allDataThere')
     this._joinTopic()
@@ -593,7 +594,7 @@ class Flock extends ReadyResource {
   async _onAddMember (candidate) {
     const id = z32.encode(candidate.inviteId)
     const inviteInfo = await this.get('inviteInfo')
-    if (inviteInfo.id !== id) return
+    if (!inviteInfo || inviteInfo.id !== id) return
 
     candidate.open(z32.decode(inviteInfo.publicKey))
     await this._connectOtherCore(candidate.userData)
@@ -712,7 +713,7 @@ class Flock extends ReadyResource {
         }
       }
 
-      await this.autobee.put(`flockInfo/members/${this.myId}`, userData, { encryptionKey: this.keyPair.secretKey })
+      await this.autobee.put(`flockInfo/members/${this.myId}`, this._userData, { encryptionKey: this.keyPair.secretKey })
     } catch (err) {
       throw new Error(`Error in updating flock ${this.localId} userData: ${err}`)
     }
