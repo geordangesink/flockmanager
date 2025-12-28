@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test:unit": "npx standard --fix && brittle test.js",
-    "test:integration": "brittle 'test/integration/**/*.test.js'",
+    "test:integration": "brittle test/integration/**/*.test.js",
     "test:all": "npm run test:unit && npm run test:integration",
     "test": "npm run test:all"
   },
