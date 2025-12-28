@@ -257,14 +257,17 @@ class FlockManager extends ReadyResource {
   async _remove (flock) {
     const stream = this.getCoresStream(flock)
 
-    stream.on('data', async (data) => {
-      try {
+    stream.on('data', (data) => {
+      const purge = async () => {
         const core = this.corestore.get(data)
         await core.ready()
+        if (typeof core.purge !== 'function') return
         await core.purge()
-      } catch (err) {
-        throw new Error(`Error in purging hypercore: ${err}`)
       }
+
+      purge().catch((err) => {
+        console.warn(`Error in purging hypercore: ${err}`)
+      })
     })
 
     stream.on('end', () => {
