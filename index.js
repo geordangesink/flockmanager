@@ -389,6 +389,7 @@ class FlockPairer extends ReadyResource {
     this.onresolve = null
     this.onreject = null
     this.flock = null
+    this._waitingWritable = false
 
     this.ready()
   }
@@ -428,14 +429,22 @@ class FlockPairer extends ReadyResource {
   }
 
   _whenWritable () {
-    if (this.flock.autobee.writable) return
+    if (!this.flock || !this.onresolve) return
+    if (this._waitingWritable) return
+    this._waitingWritable = true
+
     const check = () => {
-      if (this.flock.autobee.writable) {
-        this.flock.autobee.off('update', check)
-        this.onresolve(this.flock)
-      }
+      if (!this.flock || !this.onresolve) return
+      if (!this.flock.autobee.writable) return
+      this.flock.autobee.off('update', check)
+      this._waitingWritable = false
+      const resolve = this.onresolve
+      this.onresolve = null
+      resolve(this.flock)
     }
+
     this.flock.autobee.on('update', check)
+    check()
   }
 
   async _close () {
@@ -462,6 +471,7 @@ class FlockPairer extends ReadyResource {
     return new Promise((resolve, reject) => {
       this.onresolve = resolve
       this.onreject = reject
+      if (this.flock) this._whenWritable()
     })
   }
 }
@@ -725,18 +735,27 @@ class Flock extends ReadyResource {
   }
 
   async leave () {
-    if (this.autobee.writable) {
-      if (this.autobee.activeWriters.size > 1) {
-        await this.autobee
-          .append({
-            type: 'removeWriter',
-            key: this.autobee.local.key
-          })
-          .catch(this._exit())
-        await this._exit()
+    let leaveError = null
+
+    if (this.autobee.writable && this.autobee.activeWriters.size > 1) {
+      try {
+        await this.autobee.append({
+          type: 'removeWriter',
+          key: this.autobee.local.key
+        })
+      } catch (err) {
+        leaveError = err
       }
     }
+
+    try {
+      await this._exit()
+    } catch (err) {
+      if (!leaveError) leaveError = err
+    }
+
     this.emit('leave')
+    if (leaveError) throw leaveError
   }
 
   async _exit () {
