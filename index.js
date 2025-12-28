@@ -517,6 +517,7 @@ class Flock extends ReadyResource {
     this.autobee = null
     this.invite = ''
     this.myId = null
+    this._infoUpdate = Promise.resolve()
 
     this._boot(opts)
     this.ready()
@@ -553,8 +554,13 @@ class Flock extends ReadyResource {
       )
 
     this.autobee.on('update', () => {
-      this._updateInfo()
-      if (!this.autobee._interrupting) this.emit('update')
+      this._queueInfoUpdate()
+        .then(() => {
+          if (!this.autobee._interrupting) this.emit('update')
+        })
+        .catch((err) => {
+          console.error('Error updating flock info:', err)
+        })
     })
   }
 
@@ -736,6 +742,11 @@ class Flock extends ReadyResource {
   async _updateInfo () {
     const info = await this.getByPrefix('flockInfo/')
     this._info = info
+  }
+
+  _queueInfoUpdate () {
+    this._infoUpdate = this._infoUpdate.then(() => this._updateInfo())
+    return this._infoUpdate
   }
 
   async leave () {
