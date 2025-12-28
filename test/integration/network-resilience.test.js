@@ -2,7 +2,7 @@ const test = require('brittle')
 const FlockManager = require('../..')
 const testnet = require('hyperdht/testnet')
 const tmp = require('test-tmp')
-const { installChaos } = require('../helpers/chaos')
+const { installChaos, enableChaos } = require('../helpers/chaos')
 
 const DEFAULT_TIMEOUT = 20000
 
@@ -15,6 +15,7 @@ test('peer leaves and rejoins swarm, resumes sync', async function (t) {
   const flockB = await managerB.create(flockA.invite)
 
   await Promise.all([waitForMembers(flockA, 2), waitForMembers(flockB, 2)])
+  enableChaos(t)
 
   await flockB.swarm.leave(flockB.autobee.discoveryKey)
   await sleep(300)
@@ -66,7 +67,10 @@ async function createManager (t, opts) {
 function waitForMembers (flock, expected) {
   return waitForUpdate(
     flock,
-    () => flock.autobee.system.members >= expected,
+    () => {
+      const system = flock.autobee.system
+      return system && system.members >= expected
+    },
     `members=${expected}`
   )
 }

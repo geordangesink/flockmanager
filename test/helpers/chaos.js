@@ -14,7 +14,8 @@ const DEFAULTS = {
   partitionDelayMin: 300,
   partitionDelayMax: 1000,
   partitionDownMin: 250,
-  partitionDownMax: 800
+  partitionDownMax: 800,
+  graceMs: 1500
 }
 
 let cachedChaos
@@ -23,7 +24,6 @@ function installChaos (t, manager) {
   const chaos = getChaos(t)
   if (!chaos) return null
 
-  ensureTeardown(t, chaos)
   applyChaosToSwarm(manager.swarm, chaos)
 
   if (!manager._chaosCreateWrapped) {
@@ -36,6 +36,29 @@ function installChaos (t, manager) {
     manager._chaosCreateWrapped = true
   }
 
+  return chaos
+}
+
+function enableChaos (t) {
+  const chaos = getChaos(t)
+  if (!chaos) return null
+  if (chaos.enabled) return chaos
+
+  chaos.enabled = true
+  chaos.enabledAt = Date.now()
+  chaos.epoch += 1
+
+  for (const swarm of chaos.swarms) {
+    for (const conn of swarm.connections) {
+      applyConnectionChaos(conn, chaos)
+    }
+  }
+
+  for (const flock of chaos.flocks) {
+    schedulePartition(flock, chaos)
+  }
+
+  registerTeardown(t, chaos)
   return chaos
 }
 
@@ -54,7 +77,13 @@ function getChaos (t) {
     seed,
     rng,
     opts,
+    enabled: false,
+    enabledAt: null,
+    epoch: 0,
+    swarms: new Set(),
+    flocks: new Set(),
     timers: new Set(),
+    teardownTests: new WeakSet(),
     logged: false
   }
 
@@ -69,11 +98,13 @@ function getChaos (t) {
 function applyChaosToSwarm (swarm, chaos) {
   if (!swarm || swarm._chaosPatched) return
   swarm._chaosPatched = true
+  chaos.swarms.add(swarm)
 
   const originalEmit = swarm.emit
   swarm.emit = function (event, ...args) {
     if (event === 'connection' && args[0]) {
       const conn = args[0]
+      if (!chaos.enabled) return originalEmit.apply(this, [event, ...args])
       applyConnectionChaos(conn, chaos)
 
       const delay = randRange(chaos.rng, chaos.opts.connectionDelayMin, chaos.opts.connectionDelayMax)
@@ -92,25 +123,8 @@ function applyChaosToSwarm (swarm, chaos) {
 function applyChaosToFlock (flock, chaos) {
   if (!flock || flock._chaosPatched) return
   flock._chaosPatched = true
-
-  const chance = chaos.rng()
-  if (chance >= chaos.opts.partitionRate) return
-
-  const startDelay = randRange(chaos.rng, chaos.opts.partitionDelayMin, chaos.opts.partitionDelayMax)
-  const downDelay = randRange(chaos.rng, chaos.opts.partitionDownMin, chaos.opts.partitionDownMax)
-
-  setChaosTimeout(chaos, async () => {
-    try {
-      await flock.swarm.leave(flock.autobee.discoveryKey)
-    } catch {}
-
-    setChaosTimeout(chaos, async () => {
-      try {
-        const discovery = flock.swarm.join(flock.autobee.discoveryKey)
-        await discovery.flushed()
-      } catch {}
-    }, downDelay)
-  }, startDelay)
+  chaos.flocks.add(flock)
+  if (chaos.enabled) schedulePartition(flock, chaos)
 }
 
 function applyConnectionChaos (conn, chaos) {
@@ -119,6 +133,7 @@ function applyConnectionChaos (conn, chaos) {
 
   if (chaos.opts.readDelayMax > 0) {
     const onData = () => {
+      if (!chaos.enabled) return
       const delay = randRange(chaos.rng, chaos.opts.readDelayMin, chaos.opts.readDelayMax)
       if (delay <= 0) return
       conn.pause()
@@ -137,10 +152,12 @@ function applyConnectionChaos (conn, chaos) {
         encoding = null
       }
 
+      if (!chaos.enabled) return originalWrite(chunk, encoding, cb)
       const delay = randRange(chaos.rng, chaos.opts.writeDelayMin, chaos.opts.writeDelayMax)
       if (delay <= 0) return originalWrite(chunk, encoding, cb)
 
       setChaosTimeout(chaos, () => {
+        if (!chaos.enabled) return
         originalWrite(chunk, encoding, cb)
       }, delay)
 
@@ -148,18 +165,24 @@ function applyConnectionChaos (conn, chaos) {
     }
   }
 
-  if (chaos.opts.dropRate > 0 && chaos.rng() < chaos.opts.dropRate) {
+  if (shouldDrop(chaos) && chaos.rng() < chaos.opts.dropRate) {
     const delay = randRange(chaos.rng, chaos.opts.dropDelayMin, chaos.opts.dropDelayMax)
-    setChaosTimeout(chaos, () => conn.destroy(), delay)
+    setChaosTimeout(chaos, () => {
+      if (!chaos.enabled) return
+      conn.destroy()
+    }, delay)
   }
 }
 
-function ensureTeardown (t, chaos) {
-  if (!t || chaos._teardownRegistered) return
-  chaos._teardownRegistered = true
+function registerTeardown (t, chaos) {
+  if (!t) return
+  if (chaos.teardownTests.has(t)) return
+  chaos.teardownTests.add(t)
   t.teardown(() => {
     for (const timer of chaos.timers) clearTimeout(timer)
     chaos.timers.clear()
+    chaos.enabled = false
+    chaos.enabledAt = null
   })
 }
 
@@ -205,7 +228,8 @@ function readOptions () {
     partitionDelayMin: readInt('FLOCK_CHAOS_PARTITION_MIN', DEFAULTS.partitionDelayMin),
     partitionDelayMax: readInt('FLOCK_CHAOS_PARTITION_MAX', DEFAULTS.partitionDelayMax),
     partitionDownMin: readInt('FLOCK_CHAOS_PARTITION_DOWN_MIN', DEFAULTS.partitionDownMin),
-    partitionDownMax: readInt('FLOCK_CHAOS_PARTITION_DOWN_MAX', DEFAULTS.partitionDownMax)
+    partitionDownMax: readInt('FLOCK_CHAOS_PARTITION_DOWN_MAX', DEFAULTS.partitionDownMax),
+    graceMs: readInt('FLOCK_CHAOS_GRACE_MS', DEFAULTS.graceMs)
   }
 }
 
@@ -224,4 +248,43 @@ function randRange (rng, min, max) {
   return min + Math.floor(rng() * (max - min + 1))
 }
 
-module.exports = { installChaos }
+function schedulePartition (flock, chaos) {
+  if (!chaos.enabled) return
+  if (flock._chaosPartitionEpoch === chaos.epoch) return
+  flock._chaosPartitionEpoch = chaos.epoch
+
+  if (chaos.rng() >= chaos.opts.partitionRate) return
+
+  const startDelay = randRange(chaos.rng, chaos.opts.partitionDelayMin, chaos.opts.partitionDelayMax)
+  const downDelay = randRange(chaos.rng, chaos.opts.partitionDownMin, chaos.opts.partitionDownMax)
+  const extraDelay = graceDelay(chaos)
+
+  setChaosTimeout(chaos, async () => {
+    if (!chaos.enabled) return
+    try {
+      await flock.swarm.leave(flock.autobee.discoveryKey)
+    } catch {}
+
+    setChaosTimeout(chaos, async () => {
+      if (!chaos.enabled) return
+      try {
+        const discovery = flock.swarm.join(flock.autobee.discoveryKey)
+        await discovery.flushed()
+      } catch {}
+    }, downDelay)
+  }, startDelay + extraDelay)
+}
+
+function shouldDrop (chaos) {
+  if (!chaos.enabled) return false
+  if (!chaos.enabledAt || chaos.opts.graceMs <= 0) return true
+  return Date.now() - chaos.enabledAt >= chaos.opts.graceMs
+}
+
+function graceDelay (chaos) {
+  if (!chaos.enabledAt || chaos.opts.graceMs <= 0) return 0
+  const elapsed = Date.now() - chaos.enabledAt
+  return elapsed >= chaos.opts.graceMs ? 0 : chaos.opts.graceMs - elapsed
+}
+
+module.exports = { installChaos, enableChaos }

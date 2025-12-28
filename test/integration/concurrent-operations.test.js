@@ -2,7 +2,7 @@ const test = require('brittle')
 const FlockManager = require('../..')
 const testnet = require('hyperdht/testnet')
 const tmp = require('test-tmp')
-const { installChaos } = require('../helpers/chaos')
+const { installChaos, enableChaos } = require('../helpers/chaos')
 
 const DEFAULT_TIMEOUT = 20000
 
@@ -23,6 +23,7 @@ test('manager handles multiple flocks concurrently', async function (t) {
     ...flocksA.map((flock) => waitForMembers(flock, 2)),
     ...flocksB.map((flock) => waitForMembers(flock, 2))
   ])
+  enableChaos(t)
 
   await Promise.all(
     flocksA.map((flock, index) =>
@@ -45,6 +46,7 @@ test('concurrent writes to different keys do not conflict', async function (t) {
   const { flocks } = await createPeerCluster(t, 3)
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   await Promise.all([
     flocks[0].set('keys/alpha', 'one'),
@@ -75,6 +77,7 @@ test('concurrent writes to same key converge', async function (t) {
   const values = ['alpha', 'bravo', 'charlie']
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   await Promise.all(
     flocks.map((flock, index) => flock.set('shared/race', values[index]))
@@ -108,6 +111,7 @@ test('peers join simultaneously via same invite', async function (t) {
     waitForMembers(flockC, 4),
     waitForMembers(flockD, 4)
   ])
+  enableChaos(t)
 
   t.is(host.autobee.system.members, 4)
   t.is(flockB.autobee.system.members, 4)
@@ -128,6 +132,7 @@ test('setUserData propagates across multiple flocks', async function (t) {
     ...flocksA.map((flock) => waitForMembers(flock, 2)),
     ...flocksB.map((flock) => waitForMembers(flock, 2))
   ])
+  enableChaos(t)
 
   await managerA.setUserData({ name: 'alpha', team: 'core' })
 
@@ -177,7 +182,10 @@ async function createManager (t, opts) {
 function waitForMembers (flock, expected) {
   return waitForUpdate(
     flock,
-    () => flock.autobee.system.members >= expected,
+    () => {
+      const system = flock.autobee.system
+      return system && system.members >= expected
+    },
     `members=${expected}`
   )
 }

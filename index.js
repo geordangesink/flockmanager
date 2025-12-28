@@ -393,7 +393,7 @@ class FlockPairer extends ReadyResource {
     this.onresolve = null
     this.onreject = null
     this.flock = null
-    this._waitingWritable = false
+    this._waitingReady = false
 
     this.ready()
   }
@@ -426,40 +426,32 @@ class FlockPairer extends ReadyResource {
         }
         this.swarm = null
         this.store = null
-        if (this.onresolve) this._whenWritable()
+        if (this.onresolve) this._whenReady()
         this.candidate.close().catch(noop)
       }
     })
   }
 
-  _whenWritable () {
+  _whenReady () {
     if (!this.flock || !this.onresolve) return
-    if (this._waitingWritable) return
-    this._waitingWritable = true
-    const autobee = this.flock.autobee
+    if (this._waitingReady) return
+    this._waitingReady = true
     let active = true
 
     const finalize = () => {
       if (!active || !this.flock || !this.onresolve) return
       active = false
-      this._waitingWritable = false
+      this._waitingReady = false
       const resolve = this.onresolve
       this.onresolve = null
       resolve(this.flock)
     }
 
-    const pumpUpdates = async () => {
-      while (active && this.flock && this.onresolve && !autobee.writable) {
-        try {
-          await autobee.update()
-        } catch {}
-        await delay(200)
-      }
-      if (active && autobee.writable) finalize()
-    }
-
-    autobee.waitForWritable().then(() => finalize()).catch(noop)
-    pumpUpdates().catch(noop)
+    this.flock.ready().then(finalize).catch((err) => {
+      active = false
+      this._waitingReady = false
+      if (this.onreject) this.onreject(err)
+    })
   }
 
   async _close () {
@@ -486,7 +478,7 @@ class FlockPairer extends ReadyResource {
     return new Promise((resolve, reject) => {
       this.onresolve = resolve
       this.onreject = reject
-      if (this.flock) this._whenWritable()
+      if (this.flock) this._whenReady()
     })
   }
 }
@@ -598,7 +590,7 @@ class Flock extends ReadyResource {
     this.opened = true
     this.invite = await this._createInvite().catch(noop)
     if (this.isNew) {
-      this._setUserData(this._userData).catch(noop)
+      this._announceUserData().catch(noop)
     }
     this.emit('allDataThere')
     this._joinTopic()
@@ -756,8 +748,23 @@ class Flock extends ReadyResource {
   }
 
   _queueInfoUpdate () {
-    this._infoUpdate = this._infoUpdate.then(() => this._updateInfo())
+    this._infoUpdate = this._infoUpdate
+      .catch(noop)
+      .then(() => this._updateInfo())
     return this._infoUpdate
+  }
+
+  async _announceUserData () {
+    if (this._userDataAnnouncing) return this._userDataAnnouncing
+
+    this._userDataAnnouncing = this.autobee.waitForWritable()
+      .then(() => this._setUserData(this._userData))
+      .catch((err) => {
+        this._userDataAnnouncing = null
+        throw err
+      })
+
+    return this._userDataAnnouncing
   }
 
   async leave () {

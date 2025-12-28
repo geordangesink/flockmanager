@@ -2,7 +2,7 @@ const test = require('brittle')
 const FlockManager = require('../..')
 const testnet = require('hyperdht/testnet')
 const tmp = require('test-tmp')
-const { installChaos } = require('../helpers/chaos')
+const { installChaos, enableChaos } = require('../helpers/chaos')
 
 const DEFAULT_TIMEOUT = 20000
 
@@ -10,6 +10,7 @@ test('three peers join via invite', async function (t) {
   const { flocks } = await createPeerCluster(t, 3)
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   t.is(flocks[0].autobee.system.members, 3)
   t.is(flocks[1].autobee.system.members, 3)
@@ -20,6 +21,7 @@ test('data propagates across peers', async function (t) {
   const { flocks } = await createPeerCluster(t, 3)
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   await flocks[0].set('shared/hello', 'world')
 
@@ -37,6 +39,7 @@ test('concurrent writes converge', async function (t) {
   const values = ['alpha', 'bravo', 'charlie']
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   await Promise.all(
     flocks.map((flock, index) => flock.set('shared/race', values[index]))
@@ -58,9 +61,12 @@ test('flock info members stay consistent', async function (t) {
   const { flocks, managers } = await createPeerCluster(t, 3, { userData })
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  t.comment('members reached 3, updating user data')
+  enableChaos(t)
   await Promise.all(
     managers.map((manager, index) => manager.setUserData(userData[index]))
   )
+  t.comment('user data set, waiting for info.members')
   await Promise.all(flocks.map((flock) => waitForInfoMembers(flock, 3)))
 
   for (const flock of flocks) {
@@ -78,6 +84,8 @@ test('getByPrefix returns consistent nested data', async function (t) {
   const { flocks } = await createPeerCluster(t, 3)
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  t.comment('members reached 3, preparing leave')
+  enableChaos(t)
 
   await Promise.all([
     flocks[0].set('notes/alpha', 'one'),
@@ -108,6 +116,7 @@ test('peer leaves after sharing data', async function (t) {
   const leaver = flocks[1]
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 2)))
+  enableChaos(t)
 
   await leaver.set('shared/leave', 'bye')
   await waitForValue(flocks[0], 'shared/leave', 'bye')
@@ -127,15 +136,18 @@ test('new peer can join after another leaves', async function (t) {
   const leaver = flocks[1]
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   await host.set('shared/rejoin', 'persisted')
 
   const left = await leaveAndWait(t, leaver)
   if (!left) return
 
+  t.comment('leaver closed, creating newcomer')
   const newcomerManager = await createManager(t, { bootstrap: tn.bootstrap })
   const newcomer = await newcomerManager.create(host.invite)
 
+  t.comment('newcomer created, waiting for membership and data')
   await waitForMembers(newcomer, 3)
   await waitForValue(newcomer, 'shared/rejoin', 'persisted')
 
@@ -147,6 +159,7 @@ test('member count updates after leave', async function (t) {
   const leaver = flocks[1]
 
   await Promise.all(flocks.map((flock) => waitForMembers(flock, 3)))
+  enableChaos(t)
 
   const left = await leaveAndWait(t, leaver)
   if (!left) return
@@ -204,7 +217,10 @@ async function createManager (t, opts) {
 function waitForMembers (flock, expected) {
   return waitForUpdate(
     flock,
-    () => flock.autobee.system.members >= expected,
+    () => {
+      const system = flock.autobee.system
+      return system && system.members >= expected
+    },
     `members=${expected}`
   )
 }
@@ -212,7 +228,10 @@ function waitForMembers (flock, expected) {
 function waitForExactMembers (flock, expected, timeoutMs = DEFAULT_TIMEOUT) {
   return waitForUpdate(
     flock,
-    () => flock.autobee.system.members === expected,
+    () => {
+      const system = flock.autobee.system
+      return system && system.members === expected
+    },
     `members=${expected}`,
     timeoutMs
   )
