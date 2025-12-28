@@ -108,7 +108,7 @@ function applyChaosToSwarm (swarm, chaos) {
       applyConnectionChaos(conn, chaos)
 
       const delay = randRange(chaos.rng, chaos.opts.connectionDelayMin, chaos.opts.connectionDelayMax)
-      if (delay > 0) {
+      if (delay > 0 && !withinGrace(chaos)) {
         setChaosTimeout(chaos, () => {
           originalEmit.apply(this, [event, ...args])
         }, delay)
@@ -134,6 +134,7 @@ function applyConnectionChaos (conn, chaos) {
   if (chaos.opts.readDelayMax > 0) {
     const onData = () => {
       if (!chaos.enabled) return
+      if (withinGrace(chaos)) return
       const delay = randRange(chaos.rng, chaos.opts.readDelayMin, chaos.opts.readDelayMax)
       if (delay <= 0) return
       conn.pause()
@@ -154,7 +155,7 @@ function applyConnectionChaos (conn, chaos) {
 
       if (!chaos.enabled) return originalWrite(chunk, encoding, cb)
       const delay = randRange(chaos.rng, chaos.opts.writeDelayMin, chaos.opts.writeDelayMax)
-      if (delay <= 0) return originalWrite(chunk, encoding, cb)
+      if (delay <= 0 || withinGrace(chaos)) return originalWrite(chunk, encoding, cb)
 
       setChaosTimeout(chaos, () => {
         if (!chaos.enabled) return
@@ -279,6 +280,12 @@ function shouldDrop (chaos) {
   if (!chaos.enabled) return false
   if (!chaos.enabledAt || chaos.opts.graceMs <= 0) return true
   return Date.now() - chaos.enabledAt >= chaos.opts.graceMs
+}
+
+function withinGrace (chaos) {
+  if (!chaos.enabled) return false
+  if (!chaos.enabledAt || chaos.opts.graceMs <= 0) return false
+  return Date.now() - chaos.enabledAt < chaos.opts.graceMs
 }
 
 function graceDelay (chaos) {

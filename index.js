@@ -394,15 +394,22 @@ class FlockPairer extends ReadyResource {
     this.onreject = null
     this.flock = null
     this._waitingReady = false
+    this._onSwarmConnection = null
 
     this.ready()
   }
 
   async _open () {
-    const store = this.store
-    this.swarm.on('connection', (connection, peerInfo) => {
-      store.replicate(connection)
-    })
+    this._onSwarmConnection = (connection) => {
+      if (!this.store || this.store.closing) return
+      try {
+        this.store.replicate(connection)
+      } catch (err) {
+        if (!this.store || this.store.closing) return
+        console.error('Error replicating corestore:', err)
+      }
+    }
+    this.swarm.on('connection', this._onSwarmConnection)
     if (!this.pairing) this.pairing = new BlindPairing(this.swarm)
     const core = Autobee.getLocalCore(this.store)
     await core.ready()
@@ -460,6 +467,10 @@ class FlockPairer extends ReadyResource {
     }
 
     if (this.swarm !== null) {
+      if (this._onSwarmConnection) {
+        this.swarm.removeListener('connection', this._onSwarmConnection)
+        this._onSwarmConnection = null
+      }
       await this.swarm.destroy()
     }
 
@@ -521,6 +532,7 @@ class Flock extends ReadyResource {
     this.invite = ''
     this.myId = null
     this._infoUpdate = Promise.resolve()
+    this._onSwarmConnection = null
 
     this._boot(opts)
     this.ready()
@@ -578,9 +590,16 @@ class Flock extends ReadyResource {
     await this._updateInfo()
     this.myId = z32.encode(this.autobee.local.key)
 
-    this.swarm.on('connection', async (conn) => {
-      await this.corestore.replicate(conn)
-    })
+    this._onSwarmConnection = async (conn) => {
+      if (this.corestore.closing) return
+      try {
+        await this.corestore.replicate(conn)
+      } catch (err) {
+        if (this.corestore.closing) return
+        console.error('Error replicating corestore:', err)
+      }
+    }
+    this.swarm.on('connection', this._onSwarmConnection)
     this.pairing = new BlindPairing(this.swarm)
     this.member = this.pairing.addMember({
       discoveryKey: this.autobee.discoveryKey,
@@ -801,6 +820,10 @@ class Flock extends ReadyResource {
   }
 
   async _exit () {
+    if (this._onSwarmConnection) {
+      this.swarm.removeListener('connection', this._onSwarmConnection)
+      this._onSwarmConnection = null
+    }
     await this.member.close()
     await this.swarm.leave(this.autobee.discoveryKey)
     await this.autobee.close()
