@@ -1,20 +1,20 @@
 const { randomBytes } = require('crypto')
 
 const DEFAULTS = {
-  connectionDelayMin: 20,
-  connectionDelayMax: 250,
+  connectionDelayMin: 10,
+  connectionDelayMax: 120,
   writeDelayMin: 0,
-  writeDelayMax: 40,
+  writeDelayMax: 20,
   readDelayMin: 0,
-  readDelayMax: 40,
-  dropRate: 0.05,
+  readDelayMax: 20,
+  dropRate: 0.02,
   dropDelayMin: 200,
-  dropDelayMax: 900,
-  partitionRate: 0.3,
+  dropDelayMax: 600,
+  partitionRate: 0.1,
   partitionDelayMin: 300,
-  partitionDelayMax: 1500,
-  partitionDownMin: 300,
-  partitionDownMax: 1200
+  partitionDelayMax: 1000,
+  partitionDownMin: 250,
+  partitionDownMax: 800
 }
 
 let cachedChaos

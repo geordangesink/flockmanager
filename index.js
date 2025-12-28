@@ -436,19 +436,30 @@ class FlockPairer extends ReadyResource {
     if (!this.flock || !this.onresolve) return
     if (this._waitingWritable) return
     this._waitingWritable = true
+    const autobee = this.flock.autobee
+    let active = true
 
-    const check = () => {
-      if (!this.flock || !this.onresolve) return
-      if (!this.flock.autobee.writable) return
-      this.flock.autobee.off('update', check)
+    const finalize = () => {
+      if (!active || !this.flock || !this.onresolve) return
+      active = false
       this._waitingWritable = false
       const resolve = this.onresolve
       this.onresolve = null
       resolve(this.flock)
     }
 
-    this.flock.autobee.on('update', check)
-    check()
+    const pumpUpdates = async () => {
+      while (active && this.flock && this.onresolve && !autobee.writable) {
+        try {
+          await autobee.update()
+        } catch {}
+        await delay(200)
+      }
+      if (active && autobee.writable) finalize()
+    }
+
+    autobee.waitForWritable().then(() => finalize()).catch(noop)
+    pumpUpdates().catch(noop)
   }
 
   async _close () {

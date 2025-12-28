@@ -24,21 +24,21 @@
   },
   "homepage": "https://github.com/geordangesink/flockmanager#readme",
   "dependencies": {
-    "autobase": "^7.1.1",
-    "b4a": "^1.6.7",
+    "autobase": "^7.24.0",
+    "b4a": "^1.7.3",
     "blind-pairing": "^2.3.1",
-    "compact-encoding": "^2.16.0",
-    "corestore": "^7.0.23",
-    "hyperbee": "^2.23.0",
-    "hyperswarm": "^4.11.0",
+    "compact-encoding": "^2.18.0",
+    "corestore": "^7.7.0",
+    "hyperbee": "^2.26.5",
+    "hyperswarm": "^4.16.0",
     "random-access-memory": "^6.2.1",
-    "ready-resource": "^1.1.2",
+    "ready-resource": "^1.2.0",
     "z32": "^1.1.0"
   },
   "devDependencies": {
-    "brittle": "^3.13.1",
+    "brittle": "^3.19.1",
     "fs": "^0.0.1-security",
-    "hyperdht": "^6.20.1",
+    "hyperdht": "^6.27.1",
     "standard": "^17.1.2",
     "test-tmp": "^1.4.0"
   }
