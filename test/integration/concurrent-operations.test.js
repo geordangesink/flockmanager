@@ -2,6 +2,7 @@ const test = require('brittle')
 const FlockManager = require('../..')
 const testnet = require('hyperdht/testnet')
 const tmp = require('test-tmp')
+const { installChaos } = require('../helpers/chaos')
 
 const DEFAULT_TIMEOUT = 20000
 
@@ -166,6 +167,7 @@ async function createManager (t, opts) {
   const dir = await tmp(t)
   const manager = new FlockManager(dir, opts)
   await manager.ready()
+  installChaos(t, manager)
   t.teardown(async () => {
     await manager.close()
   })
