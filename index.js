@@ -10,6 +10,7 @@ const z32 = require('z32')
 const b4a = require('b4a')
 const c = require('compact-encoding')
 const deprecationMessage = (deprecated, newName) => console.warn(`${deprecated} is deprecated. Use ${newName} instead`)
+const LEAVE_GRACE_MS = 1000
 
 /**
  * @extends ReadyResource
@@ -741,13 +742,22 @@ class Flock extends ReadyResource {
     let leaveError = null
 
     if (this.autobee.writable && this.autobee.activeWriters.size > 1) {
+      let appended = false
       try {
         await this.autobee.append({
           type: 'removeWriter',
           key: this.autobee.local.key
         })
+        appended = true
       } catch (err) {
         leaveError = err
+      }
+
+      if (appended) {
+        const start = Date.now()
+        await waitForUnwritable(this.autobee, LEAVE_GRACE_MS)
+        const remaining = LEAVE_GRACE_MS - (Date.now() - start)
+        if (remaining > 0) await delay(remaining)
       }
     }
 
@@ -935,6 +945,42 @@ function jsonToMap (jsonStr) {
           : val
     ])
   )
+}
+
+function delay (ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitForUnwritable (autobee, timeoutMs) {
+  if (!autobee || !autobee.writable) return Promise.resolve(false)
+
+  return new Promise((resolve) => {
+    let timeout = null
+
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout)
+      autobee.removeListener('unwritable', onUnwritable)
+      autobee.removeListener('update', onUpdate)
+    }
+
+    const onUnwritable = () => {
+      cleanup()
+      resolve(true)
+    }
+
+    const onUpdate = () => {
+      if (!autobee.writable) onUnwritable()
+    }
+
+    timeout = setTimeout(() => {
+      cleanup()
+      resolve(false)
+    }, timeoutMs)
+
+    autobee.on('unwritable', onUnwritable)
+    autobee.on('update', onUpdate)
+    onUpdate()
+  })
 }
 
 function noop () {}
