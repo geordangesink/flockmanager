@@ -1,5 +1,5 @@
 const test = require('brittle')
-const FlockManager = require('./')
+const FlockManager = require('..')
 const testnet = require('hyperdht/testnet')
 const tmp = require('test-tmp')
 

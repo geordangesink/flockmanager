@@ -4,10 +4,10 @@
   "description": "create and manage flocks which hold data and connections to peers connected on a shared hyperswarm topic using invite keys",
   "main": "index.js",
   "scripts": {
-    "test:unit": "npx standard --fix && brittle test.js",
-    "test:integration": "brittle test/integration/**/*.test.js",
-    "test:all": "npm run test:unit && npm run test:integration",
-    "test": "npm run test:all"
+    "format": "npx standard --fix",
+    "test:node": "brittle --node test/index.js",
+    "test:bare": "brittle test/index.js",
+    "test": "npm run test:bare && npm run test:node"
   },
   "repository": {
     "type": "git",
