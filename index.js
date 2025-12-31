@@ -10,6 +10,7 @@ const z32 = require('z32')
 const b4a = require('b4a')
 const c = require('compact-encoding')
 const deprecationMessage = (deprecated, newName) => console.warn(`${deprecated} is deprecated. Use ${newName} instead`)
+const LEAVE_GRACE_MS = 1000
 
 /**
  * @extends ReadyResource
@@ -257,14 +258,17 @@ class FlockManager extends ReadyResource {
   async _remove (flock) {
     const stream = this.getCoresStream(flock)
 
-    stream.on('data', async (data) => {
-      try {
+    stream.on('data', (data) => {
+      const purge = async () => {
         const core = this.corestore.get(data)
         await core.ready()
+        if (typeof core.purge !== 'function') return
         await core.purge()
-      } catch (err) {
-        throw new Error(`Error in purging hypercore: ${err}`)
       }
+
+      purge().catch((err) => {
+        console.warn(`Error in purging hypercore: ${err}`)
+      })
     })
 
     stream.on('end', () => {
@@ -389,15 +393,23 @@ class FlockPairer extends ReadyResource {
     this.onresolve = null
     this.onreject = null
     this.flock = null
+    this._waitingReady = false
+    this._onSwarmConnection = null
 
     this.ready()
   }
 
   async _open () {
-    const store = this.store
-    this.swarm.on('connection', (connection, peerInfo) => {
-      store.replicate(connection)
-    })
+    this._onSwarmConnection = (connection) => {
+      if (!this.store || this.store.closing) return
+      try {
+        this.store.replicate(connection)
+      } catch (err) {
+        if (!this.store || this.store.closing) return
+        console.error('Error replicating corestore:', err)
+      }
+    }
+    this.swarm.on('connection', this._onSwarmConnection)
     if (!this.pairing) this.pairing = new BlindPairing(this.swarm)
     const core = Autobee.getLocalCore(this.store)
     await core.ready()
@@ -421,21 +433,32 @@ class FlockPairer extends ReadyResource {
         }
         this.swarm = null
         this.store = null
-        if (this.onresolve) this._whenWritable()
+        if (this.onresolve) this._whenReady()
         this.candidate.close().catch(noop)
       }
     })
   }
 
-  _whenWritable () {
-    if (this.flock.autobee.writable) return
-    const check = () => {
-      if (this.flock.autobee.writable) {
-        this.flock.autobee.off('update', check)
-        this.onresolve(this.flock)
-      }
+  _whenReady () {
+    if (!this.flock || !this.onresolve) return
+    if (this._waitingReady) return
+    this._waitingReady = true
+    let active = true
+
+    const finalize = () => {
+      if (!active || !this.flock || !this.onresolve) return
+      active = false
+      this._waitingReady = false
+      const resolve = this.onresolve
+      this.onresolve = null
+      resolve(this.flock)
     }
-    this.flock.autobee.on('update', check)
+
+    this.flock.ready().then(finalize).catch((err) => {
+      active = false
+      this._waitingReady = false
+      if (this.onreject) this.onreject(err)
+    })
   }
 
   async _close () {
@@ -444,6 +467,10 @@ class FlockPairer extends ReadyResource {
     }
 
     if (this.swarm !== null) {
+      if (this._onSwarmConnection) {
+        this.swarm.removeListener('connection', this._onSwarmConnection)
+        this._onSwarmConnection = null
+      }
       await this.swarm.destroy()
     }
 
@@ -462,6 +489,7 @@ class FlockPairer extends ReadyResource {
     return new Promise((resolve, reject) => {
       this.onresolve = resolve
       this.onreject = reject
+      if (this.flock) this._whenReady()
     })
   }
 }
@@ -503,6 +531,8 @@ class Flock extends ReadyResource {
     this.autobee = null
     this.invite = ''
     this.myId = null
+    this._infoUpdate = Promise.resolve()
+    this._onSwarmConnection = null
 
     this._boot(opts)
     this.ready()
@@ -539,8 +569,13 @@ class Flock extends ReadyResource {
       )
 
     this.autobee.on('update', () => {
-      this._updateInfo()
-      if (!this.autobee._interrupting) this.emit('update')
+      this._queueInfoUpdate()
+        .then(() => {
+          if (!this.autobee._interrupting) this.emit('update')
+        })
+        .catch((err) => {
+          console.error('Error updating flock info:', err)
+        })
     })
   }
 
@@ -555,9 +590,16 @@ class Flock extends ReadyResource {
     await this._updateInfo()
     this.myId = z32.encode(this.autobee.local.key)
 
-    this.swarm.on('connection', async (conn) => {
-      await this.corestore.replicate(conn)
-    })
+    this._onSwarmConnection = async (conn) => {
+      if (this.corestore.closing) return
+      try {
+        await this.corestore.replicate(conn)
+      } catch (err) {
+        if (this.corestore.closing) return
+        console.error('Error replicating corestore:', err)
+      }
+    }
+    this.swarm.on('connection', this._onSwarmConnection)
     this.pairing = new BlindPairing(this.swarm)
     this.member = this.pairing.addMember({
       discoveryKey: this.autobee.discoveryKey,
@@ -567,7 +609,7 @@ class Flock extends ReadyResource {
     this.opened = true
     this.invite = await this._createInvite().catch(noop)
     if (this.isNew) {
-      this._setUserData(this._userData).catch(noop)
+      this._announceUserData().catch(noop)
     }
     this.emit('allDataThere')
     this._joinTopic()
@@ -724,22 +766,64 @@ class Flock extends ReadyResource {
     this._info = info
   }
 
+  _queueInfoUpdate () {
+    this._infoUpdate = this._infoUpdate
+      .catch(noop)
+      .then(() => this._updateInfo())
+    return this._infoUpdate
+  }
+
+  async _announceUserData () {
+    if (this._userDataAnnouncing) return this._userDataAnnouncing
+
+    this._userDataAnnouncing = this.autobee.waitForWritable()
+      .then(() => this._setUserData(this._userData))
+      .catch((err) => {
+        this._userDataAnnouncing = null
+        throw err
+      })
+
+    return this._userDataAnnouncing
+  }
+
   async leave () {
-    if (this.autobee.writable) {
-      if (this.autobee.activeWriters.size > 1) {
-        await this.autobee
-          .append({
-            type: 'removeWriter',
-            key: this.autobee.local.key
-          })
-          .catch(this._exit())
-        await this._exit()
+    let leaveError = null
+
+    if (this.autobee.writable && this.autobee.activeWriters.size > 1) {
+      let appended = false
+      try {
+        await this.autobee.append({
+          type: 'removeWriter',
+          key: this.autobee.local.key
+        })
+        appended = true
+      } catch (err) {
+        leaveError = err
+      }
+
+      if (appended) {
+        const start = Date.now()
+        await waitForUnwritable(this.autobee, LEAVE_GRACE_MS)
+        const remaining = LEAVE_GRACE_MS - (Date.now() - start)
+        if (remaining > 0) await delay(remaining)
       }
     }
+
+    try {
+      await this._exit()
+    } catch (err) {
+      if (!leaveError) leaveError = err
+    }
+
     this.emit('leave')
+    if (leaveError) throw leaveError
   }
 
   async _exit () {
+    if (this._onSwarmConnection) {
+      this.swarm.removeListener('connection', this._onSwarmConnection)
+      this._onSwarmConnection = null
+    }
     await this.member.close()
     await this.swarm.leave(this.autobee.discoveryKey)
     await this.autobee.close()
@@ -913,6 +997,42 @@ function jsonToMap (jsonStr) {
           : val
     ])
   )
+}
+
+function delay (ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitForUnwritable (autobee, timeoutMs) {
+  if (!autobee || !autobee.writable) return Promise.resolve(false)
+
+  return new Promise((resolve) => {
+    let timeout = null
+
+    const cleanup = () => {
+      if (timeout) clearTimeout(timeout)
+      autobee.removeListener('unwritable', onUnwritable)
+      autobee.removeListener('update', onUpdate)
+    }
+
+    const onUnwritable = () => {
+      cleanup()
+      resolve(true)
+    }
+
+    const onUpdate = () => {
+      if (!autobee.writable) onUnwritable()
+    }
+
+    timeout = setTimeout(() => {
+      cleanup()
+      resolve(false)
+    }, timeoutMs)
+
+    autobee.on('unwritable', onUnwritable)
+    autobee.on('update', onUpdate)
+    onUpdate()
+  })
 }
 
 function noop () {}

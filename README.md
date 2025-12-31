@@ -1,4 +1,5 @@
 # FlockManager
+[![Integration Tests](https://github.com/geordangesink/flockmanager/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/geordangesink/flockmanager/actions/workflows/integration-tests.yml)
 
 FlockManager is a module that facilitates decentralized, peer-to-peer collaboration through the management of "flocks." Flocks are small, self-contained networks that allow users to share and synchronize data using Hyperswarm, Hyperbee, and Autobase.
 
@@ -152,6 +153,13 @@ Pear.teardown(async () => {
 ### `await flockManager.save(flock)`
 - saves the flock namespace Id along its `.custom` to local storage for re-open (automatically handled by .initFlock)
 
+## Testing
+
+- Unit tests: `npm run test:unit` (lint + `test.js`)
+- Integration tests: `npm run test:integration` (multi-peer tests under `test/integration/`, uses `hyperdht/testnet`)
+- Full suite: `npm test` or `npm run test:all`
+- CI: [Integration Tests](https://github.com/geordangesink/flockmanager/actions/workflows/integration-tests.yml)
+
 ## License
 
 MIT License
@@ -159,4 +167,3 @@ MIT License
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
-
