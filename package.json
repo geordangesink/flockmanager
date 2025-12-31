@@ -5,9 +5,7 @@
   "main": "index.js",
   "scripts": {
     "format": "npx standard --fix",
-    "test:node": "brittle --node test/index.js",
-    "test:bare": "brittle test/index.js",
-    "test": "npm run test:bare && npm run test:node"
+    "test": "npx standard && brittle test/index.js"
   },
   "repository": {
     "type": "git",
