@@ -1,10 +1,9 @@
 const BlindPairing = require('blind-pairing')
-const Corestore = require('corestore')
 const Autobase = require('autobase')
-const Hyperswarm = require('hyperswarm')
 const Hyperbee = require('hyperbee')
 const RAM = require('random-access-memory')
 const ReadyResource = require('ready-resource')
+const os = require('os')
 const { EventEmitter } = require('events')
 const z32 = require('z32')
 const b4a = require('b4a')
@@ -26,13 +25,13 @@ const LEAVE_GRACE_MS = 1000
 class FlockManager extends ReadyResource {
   constructor (storageDir, opts = {}) {
     super()
-    this.storageDir = storageDir || './storage'
-    this.corestore = new Corestore(this.storageDir)
+    this.storageDir = storageDir || os.tmpdir()
+    this.corestore = opts.store || new Corestore(this.storageDir)
     this.managerBee = null
     this.localBee = null
     this.keyPair = null
     this.bootstrap = opts.bootstrap || null
-    this.swarm = new Hyperswarm({ bootstrap: this.bootstrap })
+    this.swarm = opts.store || new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
     this.isSaving = false
     this.all = {}

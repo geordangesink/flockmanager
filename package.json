@@ -3,6 +3,12 @@
   "version": "1.5.0",
   "description": "create and manage flocks which hold data and connections to peers connected on a shared hyperswarm topic using invite keys",
   "main": "index.js",
+  "imports": {
+    "os": {
+      "bare": "bare-os",
+      "default": "os"
+    }
+  },
   "scripts": {
     "format": "npx standard --fix",
     "test": "npx standard && brittle test/index.js"
@@ -24,11 +30,10 @@
   "dependencies": {
     "autobase": "^7.24.0",
     "b4a": "^1.7.3",
+    "bare-os": "^3.8.7",
     "blind-pairing": "^2.3.1",
     "compact-encoding": "^2.18.0",
-    "corestore": "^7.7.0",
     "hyperbee": "^2.26.5",
-    "hyperswarm": "^4.16.0",
     "random-access-memory": "^6.2.1",
     "ready-resource": "^1.2.0",
     "z32": "^1.1.0"
