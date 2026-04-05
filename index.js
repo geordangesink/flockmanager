@@ -33,7 +33,7 @@ class FlockManager extends ReadyResource {
     this.localBee = null
     this.keyPair = null
     this.bootstrap = opts.bootstrap || null
-    this.swarm = opts.store || new Hyperswarm({ bootstrap: this.bootstrap })
+    this.swarm = opts.swarm || new Hyperswarm({ bootstrap: this.bootstrap })
     this.pairing = new BlindPairing(this.swarm)
     this.isSaving = false
     this.all = {}
