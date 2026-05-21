@@ -1,4 +1,4 @@
-name: Build Status
+name: CI
 on:
   push:
     branches:
@@ -7,17 +7,32 @@ on:
     branches:
       - main
 jobs:
-  build:
+  brittle-node:
+    name: brittle-node (${{ matrix.os }})
     strategy:
       matrix:
         node-version: [lts/*]
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v5
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-    - run: npm install
-    - run: npm test
+      - uses: actions/checkout@v5
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm ci
+      - run: npx standard
+      - run: npx brittle-node test/index.js
+
+  brittle-bare:
+    name: brittle-bare (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Use Node.js lts/*
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - run: npx standard
+      - run: npx brittle-bare test/index.js

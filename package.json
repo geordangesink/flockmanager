@@ -19,7 +19,9 @@
   },
   "scripts": {
     "format": "npx standard --fix",
-    "test": "npx standard && brittle-node test/index.js && brittle-bare test/index.js"
+    "test:bare": "brittle-bare test/index.js",
+    "test:node": "brittle-node test/index.js",
+    "test": "npx standard && npm test:node && npm test:bare"
   },
   "repository": {
     "type": "git",
