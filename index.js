@@ -606,9 +606,14 @@ class Flock extends ReadyResource {
       discoveryKey: this.autobee.discoveryKey,
       onadd: (candidate) => this._onAddMember(candidate)
     })
-    await this.member.flushed()
     this.opened = true
     this.invite = await this._createInvite().catch(noop)
+
+    // Do not block room readiness on DHT announce; invite can be created immediately from autobee key.
+    this.member.flushed().catch((err) => {
+      console.warn('Member announce flush failed:', err)
+    })
+
     if (this.isNew) {
       this._announceUserData().catch(noop)
     }
