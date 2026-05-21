@@ -20,9 +20,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm ci
-      - run: npx standard
-      - run: npx brittle-node test/index.js
+      - run: npm i
+      - run: npm run lint
+      - run: npm run test:node
 
   brittle-bare:
     name: brittle-bare (${{ matrix.os }})
@@ -37,7 +37,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm ci
+      - run: npm i
       - run: npm i -g bare
-      - run: npx standard
-      - run: npx brittle-bare test/index.js
+      - run: npm run lint
+      - run: npm run test:bare

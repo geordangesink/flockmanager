@@ -19,6 +19,7 @@
   },
   "scripts": {
     "format": "npx standard --fix",
+    "lint": "npx standard",
     "test:bare": "brittle-bare test/index.js",
     "test:node": "brittle-node test/index.js",
     "test": "npx standard && npm test:node && npm test:bare"
