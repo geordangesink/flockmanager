@@ -25,14 +25,19 @@ jobs:
       - run: npx brittle-node test/index.js
 
   brittle-bare:
-    name: brittle-bare (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: brittle-bare (${{ matrix.os }})
+    strategy:
+      matrix:
+        node-version: [lts/*]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - name: Use Node.js lts/*
+      - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: ${{ matrix.node-version }}
       - run: npm ci
+      - run: npm i -g bare
       - run: npx standard
       - run: npx brittle-bare test/index.js
