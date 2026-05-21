@@ -7,11 +7,22 @@
     "os": {
       "bare": "bare-os",
       "default": "os"
+    },
+    "events": {
+      "bare": "bare-events",
+      "default": "events"
+    },
+    "crypto": {
+      "bare": "bare-crypto",
+      "default": "crypto"
     }
   },
   "scripts": {
     "format": "npx standard --fix",
-    "test": "npx standard && brittle test/index.js"
+    "lint": "npx standard",
+    "test:bare": "brittle-bare test/index.js",
+    "test:node": "brittle-node test/index.js",
+    "test": "npx standard && npm test:node && npm test:bare"
   },
   "repository": {
     "type": "git",
@@ -30,6 +41,7 @@
   "dependencies": {
     "autobase": "^7.24.0",
     "b4a": "^1.7.3",
+    "bare-events": "^2.8.3",
     "bare-os": "^3.8.7",
     "blind-pairing": "^2.3.1",
     "compact-encoding": "^2.18.0",
@@ -41,6 +53,8 @@
     "z32": "^1.1.0"
   },
   "devDependencies": {
+    "bare-crypto": "^1.13.7",
+    "bare-process": "^4.4.1",
     "brittle": "^3.19.1",
     "fs": "^0.0.1-security",
     "hyperdht": "^6.27.1",

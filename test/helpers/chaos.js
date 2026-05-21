@@ -1,4 +1,6 @@
 const { randomBytes } = require('crypto')
+const program = global?.Bare ?? process
+if (global.Bare) program.env = require('bare-process').env
 
 const DEFAULTS = {
   connectionDelayMin: 10,
@@ -197,11 +199,11 @@ function setChaosTimeout (chaos, fn, ms) {
 }
 
 function isEnabled () {
-  return process.env.FLOCK_CHAOS === '1' || process.env.FLOCK_CHAOS === 'true'
+  return program.env.FLOCK_CHAOS === '1' || program.env.FLOCK_CHAOS === 'true'
 }
 
 function getSeed () {
-  const fromEnv = Number.parseInt(process.env.FLOCK_CHAOS_SEED, 10)
+  const fromEnv = Number.parseInt(program.env.FLOCK_CHAOS_SEED, 10)
   if (Number.isInteger(fromEnv)) return fromEnv
   return randomBytes(4).readUInt32LE(0)
 }
@@ -235,12 +237,12 @@ function readOptions () {
 }
 
 function readInt (name, fallback) {
-  const value = Number.parseInt(process.env[name], 10)
+  const value = Number.parseInt(program.env[name], 10)
   return Number.isFinite(value) ? value : fallback
 }
 
 function readFloat (name, fallback) {
-  const value = Number.parseFloat(process.env[name])
+  const value = Number.parseFloat(program.env[name])
   return Number.isFinite(value) ? value : fallback
 }
 
