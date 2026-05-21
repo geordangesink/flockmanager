@@ -41,7 +41,6 @@
     "bare-crypto": "^1.13.7",
     "bare-events": "^2.8.3",
     "bare-os": "^3.8.7",
-    "bare-process": "^4.4.1",
     "blind-pairing": "^2.3.1",
     "compact-encoding": "^2.18.0",
     "corestore": "^7.9.2",
@@ -52,6 +51,7 @@
     "z32": "^1.1.0"
   },
   "devDependencies": {
+    "bare-process": "^4.4.1",
     "brittle": "^3.19.1",
     "fs": "^0.0.1-security",
     "hyperdht": "^6.27.1",

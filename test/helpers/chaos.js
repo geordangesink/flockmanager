@@ -1,5 +1,6 @@
 const { randomBytes } = require('crypto')
 const program = global?.Bare ?? process
+if (global.Bare) program.env = require('bare-process').env
 
 const DEFAULTS = {
   connectionDelayMin: 10,
